@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:smoke": "vite build --config vite.smoke.config.ts && node tests/smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
@@ -28,6 +29,8 @@
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
-    "vite-plugin-pwa": "^2.0.0"
+    "vite-plugin-pwa": "^2.0.0",
+    "jsdom": "^26.1.0",
+    "fake-indexeddb": "^6.2.2"
   }
 }

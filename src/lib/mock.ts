@@ -306,47 +306,187 @@ function sortRows(rs: any[], key: string, dir: "asc" | "desc"): any[] {
   return out;
 }
 
+/**
+ * دعم العلاقات المتداخلة في الاستعلامات (embedded selects) — زي Supabase بالحرف.
+ * أمثلة: select("*, worker:profiles!withdrawals_worker_id_fkey(full_name)")
+ *        select("project_id, projects(status)")
+ * من غير الدعم ده، r.projects و r.worker بيطلعوا undefined وتبوظ شاشات
+ * (زي شاشة العامل اللي كانت بتقول "مشروعك اتقفل" غلط).
+ */
+const NESTED_TABLES: Record<string, () => any[]> = {
+  profiles: () => demoDB.profiles,
+  projects: () => demoDB.projects,
+  sites: () => demoDB.sites,
+  attendance: () => demoDB.attendance.filter(Boolean),
+  withdrawals: () => demoDB.withdrawals,
+  deductions: () => demoDB.deductions,
+};
+
+/** يقسّم على الفواصل اللي بره الأقواس */
+function splitTopLevel(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** يدوّر على عمود الربط (foreign key) المناسب للصف */
+function findFkColumn(row: any, relName: string, hint?: string): string | null {
+  const candidates: string[] = [];
+  // التلميح اللي جاي من Supabase: withdrawals_worker_id_fkey
+  const m = hint?.match(/^[\w]+_([\w]+)_fkey$/);
+  if (m) candidates.push(m[1]);
+  if (hint) candidates.push(hint);
+  const singular = relName.replace(/ies$/, "y").replace(/s$/, "");
+  candidates.push(`${relName}_id`, `${singular}_id`);
+  if (/^(worker|profile|profiles)$/i.test(relName)) {
+    candidates.push("worker_id", "profile_id", "created_by", "user_id");
+  }
+  candidates.push(relName, singular);
+  for (const c of candidates) if (c && c in row) return c;
+  return null;
+}
+
+function pickColumns(obj: any, cols: string | null): any {
+  if (!cols || cols.trim() === "*") return obj;
+  const out: any = {};
+  for (const w of splitTopLevel(cols)) {
+    const name = w.includes(":") ? w.split(":")[0].trim() : w;
+    if (name in obj) out[name] = obj[name];
+  }
+  return out;
+}
+
+function expandRelations(row: any, sel: string): any {
+  const out = { ...row };
+  for (const part of splitTopLevel(sel)) {
+    const m = part.match(/^(?:([\w.]+):)?([\w]+)(?:!([\w]+))?\(([^)]*)\)$/);
+    if (!m) continue; // عمود عادي أو *
+    const alias = (m[1] || m[2]).split(".").pop() as string;
+    const target = m[2].split(".").pop() as string;
+    const hint = m[3];
+    const inner = m[4];
+    const source = NESTED_TABLES[target];
+    if (!source) continue;
+    const fk = findFkColumn(row, alias, hint);
+    if (!fk) continue;
+    const match = source().find((x: any) => x && x.id === row[fk]) ?? null;
+    out[alias] = match ? pickColumns(match, inner) : null;
+  }
+  return out;
+}
+
 function build(table: string) {
-  const state: { filters: [string, any][]; order: [string, "asc" | "desc"] | null; limit: number | null } = {
+  const state: {
+    filters: [string, any][];
+    order: [string, "asc" | "desc"] | null;
+    limit: number | null;
+    select: string | null;
+  } = {
     filters: [],
     order: null,
     limit: null,
+    select: null,
+  };
+
+  /** الصفوف الأصلية (من غير نسخ/ترتيب/توسيع) — للعمليات اللي بتعدّل الداتا */
+  const matched = () => {
+    let rs = rows(table).filter((r) => matchRow(r, state.filters));
+    if (state.limit) rs = rs.slice(0, state.limit);
+    return rs;
   };
 
   const result = () => {
     let rs = rows(table).filter((r) => matchRow(r, state.filters));
     if (state.order) rs = sortRows(rs, state.order[0], state.order[1]);
     if (state.limit) rs = rs.slice(0, state.limit);
+    if (state.select) rs = rs.map((r) => expandRelations(r, state.select as string));
     return rs;
   };
 
+  /**
+   * العمليات اللي بتغيّر الداتا (insert/update/delete/upsert) بتتنفّذ **متأخرة**،
+   * يعني بعد ما كل الفلاتر تتحدد — بالظبط زي Supabase الحقيقي.
+   * من غير كده update().eq() كان هينفّذ التعديل على الجدول كله قبل ما يشوف الفلتر.
+   */
+  let pending: null | (() => { data: any; error: any }) = null;
+
+  function exec() {
+    if (pending) {
+      const run = pending;
+      pending = null;
+      return run();
+    }
+    const rs = result();
+    return { data: rs, error: null, count: rs.length };
+  }
+
+  /** شبكة أمان: لو الكود ما استناش النتيجة، ننفّذ العملية في الميكروتاسك الجاي */
+  function scheduleFlush() {
+    queueMicrotask(() => {
+      if (pending) exec();
+    });
+  }
+
   const q: any = {
-    select: () => q,
-    insert: async (payload: any) => {
+    select: (cols?: string) => {
+      state.select = cols ?? "*";
+      return q;
+    },
+    insert: (payload: any) => {
       const arr = Array.isArray(payload) ? payload : [payload];
-      const created = arr.map((p) => ({ id: uid(), created_at: new Date().toISOString(), ...p }));
-      demoDB[table] = [...rows(table), ...created];
-      return { data: Array.isArray(payload) ? created : created[0], error: null };
+      const many = Array.isArray(payload);
+      pending = () => {
+        const created = arr.map((p) => ({ id: uid(), created_at: new Date().toISOString(), ...p }));
+        demoDB[table] = [...rows(table), ...created];
+        return { data: many ? created : created[0], error: null };
+      };
+      scheduleFlush();
+      return q;
     },
-    update: async (payload: any) => {
-      const rs = result();
-      rs.forEach((r) => Object.assign(r, payload));
-      return { data: rs, error: null };
+    update: (payload: any) => {
+      pending = () => {
+        // ⚠️ نعدّل الصفوف الأصلية نفسها (مش نسخ العرض)
+        const rs = matched();
+        rs.forEach((r) => Object.assign(r, payload));
+        return { data: rs, error: null };
+      };
+      scheduleFlush();
+      return q;
     },
-    delete: async () => {
-      const rs = result();
-      const ids = new Set(rs.map((r) => r.id));
-      demoDB[table] = rows(table).filter((r: any) => !ids.has(r.id));
-      return { data: rs, error: null };
+    delete: () => {
+      pending = () => {
+        const rs = matched();
+        const ids = new Set(rs.map((r) => r.id));
+        demoDB[table] = rows(table).filter((r: any) => !ids.has(r.id));
+        return { data: rs, error: null };
+      };
+      scheduleFlush();
+      return q;
     },
-    upsert: async (payload: any) => {
+    upsert: (payload: any) => {
       const arr = Array.isArray(payload) ? payload : [payload];
-      arr.forEach((p) => {
-        const existing = rows(table).find((r) => r.id === p.id || r.key === p.key);
-        if (existing) Object.assign(existing, p);
-        else demoDB[table] = [...rows(table), { id: uid(), ...p }];
-      });
-      return { data: arr, error: null };
+      pending = () => {
+        arr.forEach((p) => {
+          const existing = rows(table).find((r) => r.id === p.id || (p.key != null && r.key === p.key));
+          if (existing) Object.assign(existing, p);
+          else demoDB[table] = [...rows(table), { id: uid(), ...p }];
+        });
+        return { data: arr, error: null };
+      };
+      scheduleFlush();
+      return q;
     },
     eq: (k: string, v: any) => {
       state.filters.push([k, v]);
@@ -377,14 +517,15 @@ function build(table: string) {
       return q;
     },
     single: async () => {
-      const rs = result();
+      const rs = exec().data as any[];
       return { data: rs[0] ?? null, error: rs.length ? null : { message: "no rows" } };
     },
     maybeSingle: async () => {
-      const rs = result();
+      const rs = exec().data as any[];
       return { data: rs[0] ?? null, error: null };
     },
-    then: (res: any) => res({ data: result(), error: null, count: result().length }),
+    then: (onFulfilled?: any, onRejected?: any) =>
+      Promise.resolve().then(() => exec()).then(onFulfilled, onRejected),
   };
   return q;
 }

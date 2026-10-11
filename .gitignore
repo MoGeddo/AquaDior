@@ -53,3 +53,6 @@ ios/
 release.keystore
 *.keystore
 *.jks
+
+# ===== Smoke test output =====
+.smoke-out/

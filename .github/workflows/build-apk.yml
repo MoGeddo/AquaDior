@@ -56,6 +56,10 @@ jobs:
       - name: فحص سريع (مش إلزامي)
         run: npm run lint || true
 
+      - name: 🧪 اختبار التشغيل (Smoke Test)
+        continue-on-error: true
+        run: npm run test:smoke
+
       - name: بناء الويب
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
