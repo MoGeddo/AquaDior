@@ -1,0 +1,11 @@
+{
+  "appId": "com.mogeddo.workers",
+  "appName": "العمال",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

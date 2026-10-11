@@ -177,6 +177,10 @@ supabase secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
 هيظهرلهم أيقونة زي أي أبليكيشن، وبيشتغل أوفلاين.
 
 ### الطريقة 2 — APK للأندرويد بس
+> 🚀 **بقى جاهز تلقائيًا!** مش محتاج تنزّل أي برنامج على جهازك.
+> شوف [`BUILD-APK.md`](./BUILD-APK.md) — الـ APK بيتبني على GitHub Actions وبيتنزل من صفحة Releases.
+
+الطريقة اليدوية (لو حبيت تعملها على جهازك):
 ```bash
 npm i -g @bubblewrap/cli
 bubblewrap init --manifest https://YOUR-DOMAIN.com/manifest.webmanifest
