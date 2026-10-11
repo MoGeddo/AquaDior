@@ -204,6 +204,19 @@ jobs:
           ls -lh apk/
           test -s apk/AquaDior.apk
 
+      - name: 🔍 التحقق من محتوى الـ APK
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          APK=apk/AquaDior.apk
+          echo "===== بيانات التطبيق ====="
+          "$BT/aapt2" dump badging "$APK" | head -6 || true
+          echo "===== هل ملفات الويب جوه الـ APK؟ ====="
+          unzip -l "$APK" | grep -E "assets/public/(index\.html|assets/)" | head -6 || echo "⚠️ مفيش ملفات ويب!"
+          echo "===== التحقق من التوقيع ====="
+          "$BT/apksigner" verify --print-certs "$APK" | head -8 || echo "⚠️ الـ APK مش موقّع"
+          echo "===== الحجم ====="
+          ls -lh apk/
+
       - name: رفع الـ APK كـ Artifact
         uses: actions/upload-artifact@v4
         with:
