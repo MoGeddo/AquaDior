@@ -1,6 +1,6 @@
 {
   "appId": "com.mogeddo.workers",
-  "appName": "العمال",
+  "appName": "أكوا ديور للمقاولات",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

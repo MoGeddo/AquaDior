@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../store/auth";
 import { supabase } from "../../lib/supabase";
+import { AquaDiorShield } from "../../components/AquaDiorLogo";
 
 const LINKS = [
   { to: "/admin", label: "📊 الداشبورد", end: true },
@@ -48,9 +49,12 @@ export default function AdminLayout() {
   return (
     <>
       <div className="topbar">
-        <div style={{ minWidth: 0 }}>
-          <h1>🏗️ لوحة التحكم</h1>
-          <div className="sub">{profile?.full_name}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <AquaDiorShield size={36} />
+          <div>
+            <h1>أكوا ديور للمقاولات</h1>
+            <div className="sub">{profile?.full_name} • لوحة الإدارة</div>
+          </div>
         </div>
         <div className="flex" style={{ gap: 8 }}>
           {unread > 0 && (

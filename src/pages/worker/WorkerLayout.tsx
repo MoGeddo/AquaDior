@@ -4,6 +4,7 @@ import { money } from "../../lib/calc";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import type { WorkerBalance } from "../../lib/types";
+import { AquaDiorShield } from "../../components/AquaDiorLogo";
 
 export default function WorkerLayout() {
   const { profile, signOut } = useAuth();
@@ -29,10 +30,13 @@ export default function WorkerLayout() {
   return (
     <>
       <div className="topbar">
-        <div style={{ minWidth: 0 }}>
-          <h1>أهلاً {profile?.full_name?.split(" ")[0]} 👋</h1>
-          <div className="sub">
-            رصيدك: <b style={{ color: "var(--teal-700)" }}>{money(bal?.balance ?? 0)}</b>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <AquaDiorShield size={34} />
+          <div>
+            <h1>أهلاً {profile?.full_name?.split(" ")[0]} 👋</h1>
+            <div className="sub">
+              رصيدك: <b style={{ color: "var(--gold-300)" }}>{money(bal?.balance ?? 0)}</b>
+            </div>
           </div>
         </div>
         <button

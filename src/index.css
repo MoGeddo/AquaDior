@@ -1,18 +1,34 @@
 /* ============================================================
-   نظام التصميم — حضور ومصاريف العمال
+   نظام تصميم أكوا ديور للمقاولات — Aqua Dior Contracting
    ============================================================ */
 
 :root {
-  /* الألوان */
-  --teal-900: #134e4a;
-  --teal-800: #115e59;
-  --teal-700: #0f766e;
-  --teal-600: #0d9488;
-  --teal-500: #14b8a6;
-  --teal-50: #f0fdfa;
+  /* ألوان هوية أكوا ديور (Gold & Deep Charcoal Palette) */
+  --gold-950: #181307;
+  --gold-900: #332408;
+  --gold-850: #4a340b;
+  --gold-800: #68490e;
+  --gold-700: #8c6414;
+  --gold-600: #b58623;
+  --gold-500: #c5a059;
+  --gold-400: #d4af37;
+  --gold-300: #e2c76a;
+  --gold-200: #f2e1a4;
+  --gold-100: #fbf5e1;
+  --gold-50: #fdfaf2;
 
-  --ink-900: #0f172a;
-  --ink-700: #334155;
+  /* توافق مع المتغيرات المستخدمة في باقي الشاشات */
+  --teal-900: #251a06;
+  --teal-800: #3f2c0a;
+  --teal-700: #8c6414;
+  --teal-600: #b58623;
+  --teal-500: #c5a059;
+  --teal-50: #fdfaf2;
+
+  --ink-950: #0d0f12;
+  --ink-900: #14171d;
+  --ink-800: #1f242e;
+  --ink-700: #333c4a;
   --ink-500: #64748b;
   --ink-400: #94a3b8;
   --ink-200: #e2e8f0;
@@ -53,10 +69,10 @@
   /* الظلال */
   --sh-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
   --sh-sm: 0 1px 3px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --sh-md: 0 4px 12px rgba(15, 23, 42, 0.07);
-  --sh-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --sh-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --sh-lg: 0 14px 36px rgba(15, 23, 42, 0.14);
 
-  --bg: var(--ink-50);
+  --bg: #f8f9fa;
   --card: #ffffff;
 }
 
@@ -92,11 +108,12 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 ::placeholder { color: var(--ink-400); }
 
 /* ============================================================
-   شاشة الدخول
+   شاشة الدخول — الهوية الفاخرة لأكوا ديور
    ============================================================ */
 .auth {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: var(--sp-5) var(--sp-4);
@@ -108,52 +125,52 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(120% 80% at 80% 0%, rgba(20, 184, 166, 0.28), transparent 60%),
-    radial-gradient(100% 70% at 0% 100%, rgba(15, 118, 110, 0.35), transparent 55%),
-    linear-gradient(160deg, #0b3b38 0%, #0f766e 55%, #115e59 100%);
+    radial-gradient(100% 70% at 85% 0%, rgba(212, 175, 55, 0.22), transparent 55%),
+    radial-gradient(90% 70% at 10% 100%, rgba(197, 160, 89, 0.25), transparent 50%),
+    linear-gradient(165deg, #0d0f12 0%, #16191f 45%, #241c0e 100%);
 }
 
 .auth-bg::after {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-  background-size: 22px 22px;
-  opacity: 0.5;
+  background-image: radial-gradient(rgba(212, 175, 55, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
+/* بطاقة الدخول */
 .auth-card {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 420px;
-  background: #fff;
+  background: #ffffff;
+  border: 1px solid rgba(197, 160, 89, 0.35);
   border-radius: var(--r-xl);
-  padding: var(--sp-8) var(--sp-6) var(--sp-6);
-  box-shadow: var(--sh-lg);
-  animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to { opacity: 1; transform: none; }
+  padding: var(--sp-6);
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(212, 175, 55, 0.15);
 }
 
 .auth-brand { text-align: center; margin-bottom: var(--sp-6); }
 
 .auth-logo {
   display: inline-flex;
-  filter: drop-shadow(0 8px 20px rgba(15, 118, 110, 0.28));
-  margin-bottom: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  filter: drop-shadow(0 6px 16px rgba(197, 160, 89, 0.3));
 }
 
 .auth-brand h1 {
-  font-size: 22px;
+  font-size: 23px;
   font-weight: 800;
   letter-spacing: -0.2px;
+  color: var(--ink-950);
 }
 
-.auth-brand p { color: var(--ink-500); font-size: 14px; margin-top: var(--sp-1); }
+.auth-brand p {
+  color: var(--ink-500);
+  font-size: 13.5px;
+  margin-top: var(--sp-1);
+}
 
 .auth-form { display: flex; flex-direction: column; gap: var(--sp-4); }
 
@@ -177,9 +194,9 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 }
 
 .inp:focus-within {
-  border-color: var(--teal-600);
+  border-color: var(--gold-500);
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.12);
+  box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.18);
 }
 
 .inp-ico { font-size: 17px; opacity: 0.75; flex-shrink: 0; }
@@ -220,7 +237,8 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 
 .auth-note {
   margin-top: var(--sp-4);
-  background: var(--ink-50);
+  background: var(--gold-50);
+  border: 1px solid rgba(197, 160, 89, 0.25);
   border-radius: var(--r-md);
   padding: var(--sp-3) var(--sp-4);
 }
@@ -229,8 +247,9 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 
 .auth-note code {
   font-size: 12px;
-  color: var(--teal-700);
-  background: var(--teal-50);
+  color: var(--gold-700);
+  background: #fff;
+  border: 1px solid rgba(197, 160, 89, 0.3);
   padding: 2px 8px;
   border-radius: var(--r-sm);
   font-weight: 700;
@@ -250,9 +269,9 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 .page-wide { max-width: 1240px; }
 
 .topbar {
-  background: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(180deg, #18191c 0%, #101114 100%);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--ink-200);
+  border-bottom: 2px solid var(--gold-500);
   padding: var(--sp-3) var(--sp-4);
   display: flex;
   align-items: center;
@@ -261,14 +280,27 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   position: sticky;
   top: 0;
   z-index: 20;
+  color: #ffffff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
 }
 
-.topbar h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
-.topbar .sub { font-size: 12.5px; color: var(--ink-500); margin-top: 1px; }
+.topbar h1 {
+  font-size: 16.5px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  color: #ffffff;
+}
+
+.topbar .sub {
+  font-size: 12.5px;
+  color: var(--gold-300);
+  margin-top: 1px;
+}
 
 .role-chip {
-  background: var(--ink-100);
-  color: var(--ink-700);
+  background: rgba(212, 175, 55, 0.16);
+  color: #f7e6b5;
+  border: 1px solid rgba(212, 175, 55, 0.35);
   border-radius: var(--r-full);
   padding: 4px 12px;
   font-size: 12px;
@@ -325,18 +357,23 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .btn-primary {
-  background: linear-gradient(160deg, var(--teal-600), var(--teal-700));
+  background: linear-gradient(155deg, #d4af37 0%, #c5a059 40%, #a87e22 100%);
   border-color: transparent;
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(15, 118, 110, 0.28);
+  color: #ffffff;
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgba(184, 134, 35, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
-.btn-primary:hover { box-shadow: 0 6px 20px rgba(15, 118, 110, 0.36); }
+.btn-primary:hover {
+  background: linear-gradient(155deg, #dfbc45 0%, #d4af37 40%, #b58925 100%);
+  box-shadow: 0 6px 22px rgba(184, 134, 35, 0.45);
+}
 
 .btn-lg { min-height: 52px; font-size: 16px; border-radius: var(--r-md); }
 .btn-sm { padding: 7px 12px; font-size: 13px; min-height: 36px; border-radius: var(--r-sm); }
 .btn-block { width: 100%; }
-.btn-ghost { background: transparent; border-color: transparent; color: var(--teal-700); }
-.btn-ghost:hover { background: var(--teal-50); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--gold-700); }
+.btn-ghost:hover { background: var(--gold-50); }
 .btn-danger { background: var(--red-600); border-color: transparent; color: #fff; }
 .btn-success { background: var(--green-600); border-color: transparent; color: #fff; }
 
@@ -358,9 +395,10 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
 }
 .btn-hero:active { transform: scale(0.98); }
 .btn-hero small { font-size: 12.5px; font-weight: 600; opacity: 0.92; }
+
 .btn-hero.primary {
-  background: linear-gradient(160deg, var(--teal-500), var(--teal-700));
-  box-shadow: 0 10px 26px rgba(15, 118, 110, 0.3);
+  background: linear-gradient(160deg, #d4af37, #a87e22);
+  box-shadow: 0 10px 26px rgba(184, 134, 35, 0.35);
 }
 .btn-hero.money {
   background: linear-gradient(160deg, var(--amber-500), var(--amber-600));
@@ -383,8 +421,8 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .input:focus {
-  border-color: var(--teal-600);
-  box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.12);
+  border-color: var(--gold-500);
+  box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.18);
 }
 .input-big {
   font-size: 28px;
@@ -425,7 +463,7 @@ label.field > span {
 .stat .value.red { color: var(--red-600); }
 .stat .value.amber { color: var(--amber-600); }
 .stat .value.blue { color: var(--blue-600); }
-.stat .value.teal { color: var(--teal-700); }
+.stat .value.teal { color: var(--gold-700); }
 
 /* ============================================================
    الشارات
@@ -445,7 +483,11 @@ label.field > span {
 .badge.amber { background: var(--amber-50); color: #b45309; }
 .badge.blue { background: var(--blue-50); color: #1d4ed8; }
 .badge.gray { background: var(--ink-100); color: var(--ink-700); }
-.badge.teal { background: var(--teal-50); color: var(--teal-800); }
+.badge.teal {
+  background: var(--gold-100);
+  color: var(--gold-800);
+  border: 1px solid rgba(197, 160, 89, 0.35);
+}
 
 /* ============================================================
    الجداول
@@ -482,18 +524,19 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
 .row .meta { font-size: 12px; color: var(--ink-500); }
 
 /* ============================================================
-   التنقل السفلي (عمال)
+   التنقل السفلي (عمال) — هوية فاخرة
    ============================================================ */
 .bottom-nav {
   position: fixed;
   bottom: 0;
   inset-inline: 0;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid var(--ink-200);
+  background: rgba(18, 20, 24, 0.96);
+  backdrop-filter: blur(12px);
+  border-top: 2px solid var(--gold-500);
   display: flex;
   z-index: 30;
   padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
 }
 .bottom-nav a {
   flex: 1;
@@ -504,25 +547,27 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   padding: 9px 4px 11px;
   font-size: 11.5px;
   font-weight: 700;
-  color: var(--ink-500);
+  color: #94a3b8;
   transition: color 0.15s;
 }
-.bottom-nav a.active { color: var(--teal-700); }
+.bottom-nav a.active {
+  color: var(--gold-400);
+}
 .bottom-nav .ico { font-size: 21px; line-height: 1; }
 .has-bottom-nav { padding-bottom: 84px; }
 
 /* ============================================================
-   تنقل الإدارة
+   تنقل الإدارة — تدرج داكن فخم
    ============================================================ */
 .admin-nav {
-  background: #fff;
-  border-bottom: 1px solid var(--ink-200);
+  background: #14161a;
+  border-bottom: 1px solid #2d323b;
   display: flex;
   gap: 2px;
   overflow-x: auto;
   padding: 6px 10px;
   position: sticky;
-  top: 61px;
+  top: 57px;
   z-index: 15;
   scrollbar-width: none;
 }
@@ -532,12 +577,19 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   border-radius: var(--r-sm);
   font-size: 13px;
   font-weight: 700;
-  color: var(--ink-500);
+  color: #94a3b8;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
 }
-.admin-nav a:hover { background: var(--ink-50); }
-.admin-nav a.active { background: var(--teal-50); color: var(--teal-800); }
+.admin-nav a:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+.admin-nav a.active {
+  background: linear-gradient(160deg, rgba(212, 175, 55, 0.22), rgba(184, 134, 35, 0.28));
+  color: #f7e6b5;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+}
 
 /* ============================================================
    متفرقات
@@ -571,13 +623,14 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   position: fixed;
   bottom: 96px;
   inset-inline: var(--sp-4);
-  background: var(--ink-900);
+  background: var(--ink-950);
+  border: 1px solid var(--gold-500);
   color: #fff;
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-md);
   font-weight: 700;
   z-index: 100;
-  box-shadow: var(--sh-lg);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
   text-align: center;
   animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -597,9 +650,9 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--teal-50);
-  color: var(--teal-800);
-  border: 1px solid #ccfbf1;
+  background: var(--gold-50);
+  color: var(--gold-800);
+  border: 1px solid rgba(197, 160, 89, 0.35);
   padding: 5px 12px;
   border-radius: var(--r-full);
   font-size: 13px;

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 560" width="100%" height="100%">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCEABB"/>
+      <stop offset="25%" stop-color="#F0D382"/>
+      <stop offset="50%" stop-color="#D4AF37"/>
+      <stop offset="75%" stop-color="#BD8C28"/>
+      <stop offset="100%" stop-color="#91640E"/>
+    </linearGradient>
+    <linearGradient id="goldLight" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4AF37"/>
+      <stop offset="45%" stop-color="#FFF2CE"/>
+      <stop offset="70%" stop-color="#E2B747"/>
+      <stop offset="100%" stop-color="#9C6F12"/>
+    </linearGradient>
+    <linearGradient id="goldSoft" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#D4AF37" stop-opacity="0.1"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#D4AF37" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Outer Shield -->
+  <path d="M 250 40 
+           C 310 40, 390 55, 415 80
+           C 420 180, 420 280, 400 350
+           C 370 450, 290 505, 250 525
+           C 210 505, 130 450, 100 350
+           C 80 280, 80 180, 85 80
+           C 110 55, 190 40, 250 40 Z"
+        fill="none" 
+        stroke="url(#goldGrad)" 
+        stroke-width="18" 
+        stroke-linejoin="round"
+        stroke-linecap="round"
+        filter="url(#glow)" />
+
+  <!-- Inner Shield Trim -->
+  <path d="M 250 68 
+           C 300 68, 368 80, 390 102
+           C 395 185, 395 270, 378 335
+           C 352 422, 285 472, 250 490
+           C 215 472, 148 422, 122 335
+           C 105 270, 105 185, 110 102
+           C 132 80, 200 68, 250 68 Z"
+        fill="none" 
+        stroke="url(#goldLight)" 
+        stroke-width="6" 
+        stroke-opacity="0.8"
+        stroke-linejoin="round" />
+
+  <!-- Central Water Droplet Shape with inner fluid contour -->
+  <!-- Outer drop body -->
+  <path d="M 250 140
+           C 255 145, 330 240, 330 310
+           C 330 365, 295 405, 250 405
+           C 205 405, 170 365, 170 310
+           C 170 240, 245 145, 250 140 Z"
+        fill="none"
+        stroke="url(#goldGrad)"
+        stroke-width="15"
+        stroke-linecap="round"
+        stroke-linejoin="round" />
+
+  <!-- Inner fluid spiral / curved droplet wave -->
+  <path d="M 250 195
+           C 285 245, 295 290, 280 330
+           C 265 370, 225 375, 208 345
+           C 195 320, 202 285, 222 260
+           C 238 240, 250 215, 250 195 Z"
+        fill="url(#goldLight)"
+        opacity="0.85" />
+
+  <path d="M 245 220
+           C 230 250, 225 285, 238 315
+           C 246 332, 260 338, 268 328
+           C 278 315, 275 285, 258 250
+           C 252 238, 248 228, 245 220 Z"
+        fill="#FFFFFF"
+        opacity="0.6" />
+</svg>

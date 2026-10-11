@@ -72,7 +72,7 @@ export default function SettingsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: tgChat.trim(),
-            text: "✅ اختبار من تطبيق حضور ومصاريف العمال — الإشعارات شغالة!",
+            text: "✅ اختبار من تطبيق أكوا ديور للمقاولات — الإشعارات شغالة!",
           }),
         }
       );
