@@ -46,3 +46,10 @@ coverage/
 
 # ===== PWA generated =====
 dev-dist
+
+# ===== Capacitor / Android (بتتولد وقت البناء) =====
+android/
+ios/
+release.keystore
+*.keystore
+*.jks

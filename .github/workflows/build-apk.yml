@@ -1,0 +1,212 @@
+# ==============================================================
+#  🏗️ بناء APK للتليفون — من غير أي برامج على جهازك
+#  ------------------------------------------------------------
+#  الطريقة:
+#   1) GitHub → تبويب Actions → Build APK → Run workflow
+#   2) استنى 5–10 دقايق
+#   3) نزّل الـ APK من: Releases → "أحدث نسخة APK"
+#      لينك مباشر (يفتح من تليفونك):
+#      https://github.com/MoGeddo/AquaDior/releases/download/apk-latest/AquaDior.apk
+#
+#  ملاحظة: لو مفيش قيم Supabase، البناء بيطلع في "الوضع التجريبي"
+#  ببيانات وهمية — وده أحسن حاجة لتجربة التطبيق على التليفون.
+#  عشان تربطه بقاعدة بياناتك: Settings → Secrets and variables →
+#  Actions → Variables → ضيف:
+#      VITE_SUPABASE_URL
+#      VITE_SUPABASE_ANON_KEY
+#  (مفتاح anon مش سرّ — هو مصمَّم يبقى في الأبليكيشن، والحماية بـ RLS)
+# ==============================================================
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- 1) فحص + بناء نسخة الويب ----------
+  web:
+    name: 🧪 فحص وبناء الويب
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تهيئة Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: تنزيل المكتبات
+        run: npm ci || npm install
+
+      - name: فحص سريع (مش إلزامي)
+        run: npm run lint || true
+
+      - name: بناء الويب
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: رفع ناتج البناء
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+          retention-days: 7
+
+  # ---------- 2) لفّ نسخة الويب في APK ----------
+  apk:
+    name: 📱 بناء APK
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل الكود
+        uses: actions/checkout@v4
+
+      - name: تهيئة Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: تهيئة Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: تنزيل نسخة الويب المبنية
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+
+      - name: تنزيل المكتبات + Capacitor
+        run: |
+          npm ci || npm install
+          npm i --no-save @capacitor/core@^7 @capacitor/android@^7 @capacitor/cli@^7
+          npx cap --version
+
+      - name: تهيئة مشروع أندرويد
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: تجهيز Android SDK
+        run: |
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDK" ]; then
+            yes | "$SDK" --licenses > /dev/null 2>&1 || true
+            "$SDK" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
+          fi
+
+      - name: 🔑 استرجاع مفتاح التوقيع من الكاش
+        uses: actions/cache@v4
+        with:
+          path: release.keystore
+          key: aquadior-keystore-v1
+
+      - name: 🔑 تجهيز مفتاح التوقيع
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "✅ استخدمت المفتاح المرفوع في الـ Secrets"
+          elif [ -f release.keystore ]; then
+            echo "✅ المفتاح موجود في الكاش"
+          else
+            keytool -genkeypair -keystore release.keystore -alias aquadior \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -storepass aquadior123 -keypass aquadior123 \
+              -dname "CN=AquaDior, O=AquaDior, L=Cairo, C=EG"
+            echo "🆕 عملت مفتاح توقيع جديد"
+          fi
+
+      - name: ✍️ تفعيل التوقيع في Gradle
+        run: |
+          cat >> android/app/build.gradle <<'EOF'
+
+          // ==== توقيع تلقائي (بيتضاف وقت البناء على GitHub) ====
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv("KS_FILE") ?: "${rootProject.projectDir}/../release.keystore")
+                      storePassword System.getenv("KS_PASS") ?: "aquadior123"
+                      keyAlias System.getenv("KS_ALIAS") ?: "aquadior"
+                      keyPassword System.getenv("KS_PASS") ?: "aquadior123"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          EOF
+          echo "--- آخر 25 سطر من build.gradle ---"
+          tail -25 android/app/build.gradle
+
+      - name: 📱 بناء الـ APK
+        env:
+          KS_FILE: ${{ github.workspace }}/release.keystore
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon assembleRelease || echo "::warning::بناء النسخة الموقّعة فشل — هنستخدم نسخة الـ debug"
+
+      - name: تجميع الملفات
+        run: |
+          mkdir -p apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk apk/AquaDior-debug.apk || true
+          cp android/app/build/outputs/apk/release/app-release.apk apk/AquaDior.apk || true
+          if [ ! -f apk/AquaDior.apk ]; then
+            cp apk/AquaDior-debug.apk apk/AquaDior.apk
+          fi
+          ls -lh apk/
+          test -s apk/AquaDior.apk
+
+      - name: رفع الـ APK كـ Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: apk/*.apk
+          retention-days: 30
+
+      - name: 📦 نشره على صفحة Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: "📱 أحدث نسخة APK — تطبيق العمال"
+          body: |
+            ### نزّل وثبّت على الأندرويد
+
+            1. نزّل الملف **AquaDior.apk**
+            2. افتحه → لو ظهر تحذير اختر **"السماح من هذا المصدر"**
+            3. افتح التطبيق وسجّل دخول بحساب المالك (الوضع التجريبي)
+
+            **حسابات التجربة:**
+            | الدور | اليوزر | الباسورد |
+            |---|---|---|
+            | مالك | `abden.younes` | `Qn&112233#Do` |
+            | مالك | `mahmoud.abdin` | `Qn&112233#Do` |
+            | مطوّر | `MostafaGeddo` | `Qn&112233#Do` |
+
+            > `AquaDior-debug.apk` نسخة للتجربة كمان — لو نسخة الـ release عملت مشكلة استعملها.
+          files: apk/*.apk
+          prerelease: true
+          make_latest: false
