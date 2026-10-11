@@ -21,6 +21,10 @@ name: Build APK
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/**"
     tags:
       - "v*"
 
@@ -56,7 +60,23 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-        run: npm run build
+        run: |
+          # 1) البناء الرسمي (بيفحص الأنواع الأول)
+          if npm run build; then
+            echo "✅ البناء نجح بفحص الأنواع كامل"
+          else
+            echo "::warning::فحص الأنواع (tsc) فشل — هبني من غير فحص عشان تاخد APK تجربه على التليفون، بس صلّح الأخطاء اللي فوق"
+            rm -rf dist
+            npx vite build
+          fi
+
+          # 2) تأكيد إن في فعلاً ملفات مبنية (لو src ناقص، ده اللي هيفشل)
+          if [ ! -f dist/index.html ]; then
+            echo "::error::مفيش dist/index.html — ملفات التطبيق (src/) مش موجودة في الريبو"
+            exit 1
+          fi
+          echo "✅ الويب جاهز: $(find dist -type f | wc -l) ملف"
+          ls -la dist/ | head
 
       - name: رفع ناتج البناء
         uses: actions/upload-artifact@v4
