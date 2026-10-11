@@ -1,7 +1,88 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0f766e"/>
-  <path d="M120 300 a136 136 0 0 1 272 0 v18 H120 z" fill="#ffffff"/>
-  <rect x="96" y="318" width="320" height="30" rx="15" fill="#ffffff"/>
-  <rect x="232" y="172" width="48" height="128" rx="24" fill="#0f766e" opacity="0.22"/>
-  <path d="M186 236 l30 30 62 -66" stroke="#0f766e" stroke-width="26" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1F242D"/>
+      <stop offset="100%" stop-color="#0F1216"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCEABB"/>
+      <stop offset="25%" stop-color="#F0D382"/>
+      <stop offset="50%" stop-color="#D4AF37"/>
+      <stop offset="75%" stop-color="#BD8C28"/>
+      <stop offset="100%" stop-color="#91640E"/>
+    </linearGradient>
+    <linearGradient id="goldLight" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4AF37"/>
+      <stop offset="45%" stop-color="#FFF2CE"/>
+      <stop offset="70%" stop-color="#E2B747"/>
+      <stop offset="100%" stop-color="#9C6F12"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.4"/>
+
+  <g transform="translate(6, -14)">
+    <!-- Outer Shield -->
+    <path d="M 250 82 
+             C 315 82, 395 98, 418 124
+             C 424 225, 424 325, 404 395
+             C 374 495, 292 550, 250 570
+             C 208 550, 126 495, 96 395
+             C 76 325, 76 225, 82 124
+             C 105 98, 185 82, 250 82 Z"
+          transform="scale(0.85) translate(44, 40)"
+          fill="none" 
+          stroke="url(#goldGrad)" 
+          stroke-width="16" 
+          stroke-linejoin="round"
+          stroke-linecap="round" />
+
+    <!-- Inner Shield Trim -->
+    <path d="M 250 110 
+             C 305 110, 372 122, 392 145
+             C 398 228, 398 312, 380 378
+             C 354 465, 286 515, 250 534
+             C 214 515, 146 465, 120 378
+             C 102 312, 102 228, 108 145
+             C 128 122, 195 110, 250 110 Z"
+          transform="scale(0.85) translate(44, 40)"
+          fill="none" 
+          stroke="url(#goldLight)" 
+          stroke-width="5" 
+          stroke-opacity="0.85"
+          stroke-linejoin="round" />
+
+    <!-- Central Water Droplet -->
+    <path d="M 250 185
+             C 256 190, 332 285, 332 354
+             C 332 408, 296 448, 250 448
+             C 204 448, 168 408, 168 354
+             C 168 285, 244 190, 250 185 Z"
+          transform="scale(0.85) translate(44, 40)"
+          fill="none"
+          stroke="url(#goldGrad)"
+          stroke-width="14"
+          stroke-linecap="round"
+          stroke-linejoin="round" />
+
+    <!-- Fluid Swoosh -->
+    <path d="M 250 238
+             C 285 288, 295 332, 280 372
+             C 264 412, 224 416, 206 386
+             C 193 361, 200 326, 220 301
+             C 236 281, 249 257, 250 238 Z"
+          transform="scale(0.85) translate(44, 40)"
+          fill="url(#goldLight)"
+          opacity="0.9" />
+
+    <path d="M 245 264
+             C 230 294, 226 328, 238 358
+             C 246 375, 260 380, 268 370
+             C 278 357, 274 327, 258 292
+             C 252 280, 248 270, 245 264 Z"
+          transform="scale(0.85) translate(44, 40)"
+          fill="#FFFFFF"
+          opacity="0.65" />
+  </g>
 </svg>

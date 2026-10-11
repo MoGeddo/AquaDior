@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { supabase, DEMO_MODE } from "../lib/supabase";
 import { compressImage, fmtSize } from "../lib/image";
+import { AquaDiorShield } from "../components/AquaDiorLogo";
 
 export default function Register() {
   const { signUp, refresh } = useAuth();
@@ -89,9 +90,11 @@ export default function Register() {
     <div className="auth" style={{ alignItems: "flex-start", padding: "16px" }}>
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-brand">
-          <div className="icon">📝</div>
-          <h1>تسجيل جديد</h1>
-          <p>مرة واحدة بس — بعد كده هتدخل باسم المستخدم وكلمة السر</p>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+            <AquaDiorShield size={50} />
+          </div>
+          <h1>تسجيل حساب جديد</h1>
+          <p>أكوا ديور للمقاولات — سجّل بياناتك وسيتم تفعيل حسابك مباشرة</p>
         </div>
 
         {err && <div className="alert error">{err}</div>}

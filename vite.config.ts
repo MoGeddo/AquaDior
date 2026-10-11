@@ -13,13 +13,13 @@ export default defineConfig({
       injectRegister: "auto",
       includeAssets: ["favicon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "حضور ومصاريف العمال",
-        short_name: "العمال",
-        description: "تسجيل حضور العمال والفلوس اللي بياخدوها والتسويات",
+        name: "أكوا ديور للمقاولات",
+        short_name: "أكوا ديور",
+        description: "أكوا ديور للمقاولات — نظام إدارة المشاريع وحضور ومصاريف العمال والتسويات",
         lang: "ar",
         dir: "rtl",
-        theme_color: "#0f766e",
-        background_color: "#f4f6fa",
+        theme_color: "#121417",
+        background_color: "#f8f9fa",
         display: "standalone",
         orientation: "portrait",
         start_url: "/",
@@ -47,6 +47,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    allowedHosts: true,
   },
   preview: {
     host: true,

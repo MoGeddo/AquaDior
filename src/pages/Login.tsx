@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
+import AquaDiorLogo, { AquaDiorHeaderBanner } from "../components/AquaDiorLogo";
 
 const ROLE_HINT: Record<string, { label: string; icon: string; cls: string }> = {
   owner: { label: "مالك", icon: "👑", cls: "amber" },
@@ -86,28 +87,17 @@ export default function Login() {
   }
 
   return (
-    <div className="auth">
+    <div className="auth" style={{ paddingTop: 60 }}>
       <div className="auth-bg" aria-hidden />
 
-      <div className="auth-card">
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 30 }}>
+        <AquaDiorHeaderBanner />
+      </div>
+
+      <div className="auth-card" style={{ marginTop: 24 }}>
         <div className="auth-brand">
-          <div className="auth-logo">
-            <svg viewBox="0 0 512 512" width="64" height="64" aria-hidden>
-              <rect width="512" height="512" rx="112" fill="#0f766e" />
-              <path d="M120 300 a136 136 0 0 1 272 0 v18 H120 z" fill="#ffffff" />
-              <rect x="96" y="318" width="320" height="30" rx="15" fill="#ffffff" />
-              <path
-                d="M186 236 l30 30 62 -66"
-                stroke="#0f766e"
-                strokeWidth="26"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <h1>حضور ومصاريف العمال</h1>
-          <p>سجّل شغلك والفلوس اللي خدتها</p>
+          <AquaDiorLogo size={70} showText={true} />
+          <p style={{ marginTop: 8 }}>نظام إدارة العمليات وحضور ومصاريف العمال</p>
         </div>
 
         {err && <div className="alert error">{err}</div>}
