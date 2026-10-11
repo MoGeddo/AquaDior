@@ -1,0 +1,504 @@
+import { useEffect, useState } from "react";
+import { supabase, DEMO_MODE } from "../../lib/supabase";
+import { db } from "../../lib/db";
+import { money } from "../../lib/calc";
+import { Modal } from "../../components/Modal";
+import type { Profile } from "../../lib/types";
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: "👑 مالك",
+  manager: "🧑‍💼 مدير",
+  developer: "🛠️ مطوّر",
+  worker: "👷 عامل",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "✅ شغّال",
+  pending: "⏳ مستني تفعيل",
+  rejected: "🚫 مرفوض",
+  suspended: "⏸ موقوف",
+};
+
+export default function Developer() {
+  const [tab, setTab] = useState<"users" | "diag" | "audit">("users");
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [q, setQ] = useState("");
+  const [editing, setEditing] = useState<Profile | null>(null);
+  const [msg, setMsg] = useState("");
+  const [stats, setStats] = useState<any>(null);
+  const [queue, setQueue] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
+
+  async function load() {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setUsers((data ?? []) as Profile[]);
+
+    if (!DEMO_MODE) {
+      const { data: s } = await supabase.rpc("system_stats");
+      if (s) setStats(s);
+    } else {
+      setStats({
+        workers: users.filter((u) => u.role === "worker").length,
+        admins: users.filter((u) => u.role !== "worker").length,
+        pending: users.filter((u) => u.status === "pending").length,
+        attendance: 0,
+        withdrawals: 0,
+        deductions: 0,
+        audit: 0,
+        notifications: 0,
+        settlements: 0,
+      });
+    }
+
+    setQueue(await db.queue.toArray());
+
+    const { data: l } = await supabase
+      .from("audit_log")
+      .select("*")
+      .order("changed_at", { ascending: false })
+      .limit(300);
+    setLogs(l ?? []);
+
+    const ids = new Set<string>();
+    (l ?? []).forEach((x: any) => x.changed_by && ids.add(x.changed_by));
+    if (ids.size) {
+      const { data: p } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", [...ids]);
+      const m: Record<string, string> = {};
+      (p ?? []).forEach((x: any) => (m[x.id] = x.full_name));
+      setNames(m);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const filtered = users.filter(
+    (u) =>
+      u.full_name.includes(q) ||
+      (u.username ?? "").toLowerCase().includes(q.toLowerCase()) ||
+      (u.phone ?? "").includes(q)
+  );
+
+  return (
+    <>
+      <div className="flex mb wrap">
+        <button
+          className={`btn btn-sm ${tab === "users" ? "btn-primary" : ""}`}
+          onClick={() => setTab("users")}
+        >
+          👥 كل اليوزرات ({users.length})
+        </button>
+        <button
+          className={`btn btn-sm ${tab === "diag" ? "btn-primary" : ""}`}
+          onClick={() => setTab("diag")}
+        >
+          🔧 التشخيص
+        </button>
+        <button
+          className={`btn btn-sm ${tab === "audit" ? "btn-primary" : ""}`}
+          onClick={() => setTab("audit")}
+        >
+          🛡️ سجل التعديلات
+        </button>
+      </div>
+
+      {msg && <div className="alert success">{msg}</div>}
+
+      {/* ============ كل اليوزرات ============ */}
+      {tab === "users" && (
+        <>
+          <div className="flex-between mb">
+            <input
+              className="input"
+              style={{ maxWidth: 300 }}
+              placeholder="🔍 ابحث بالاسم أو اليوزر أو الموبايل"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <span className="badge teal">
+              🛠️ مطوّر — تقدر تعدّل أي يوزر
+            </span>
+          </div>
+
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>الاسم</th>
+                    <th>اسم المستخدم</th>
+                    <th>الموبايل</th>
+                    <th>الدور</th>
+                    <th>الحالة</th>
+                    <th>اليومية</th>
+                    <th>أيام</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((u) => (
+                    <tr key={u.id}>
+                      <td>
+                        <b>{u.full_name}</b>
+                      </td>
+                      <td className="num" dir="ltr">
+                        {u.username ?? "—"}
+                      </td>
+                      <td className="num" dir="ltr">
+                        {u.phone ?? "—"}
+                      </td>
+                      <td>{ROLE_LABEL[u.role] ?? u.role}</td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            u.status === "active"
+                              ? "green"
+                              : u.status === "pending"
+                              ? "amber"
+                              : "red"
+                          }`}
+                        >
+                          {STATUS_LABEL[u.status] ?? u.status}
+                        </span>
+                      </td>
+                      <td className="num">{money(u.daily_wage)}</td>
+                      <td className="num">—</td>
+                      <td>
+                        <button className="btn btn-sm" onClick={() => setEditing(u)}>
+                          ✏️ تعديل
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============ التشخيص ============ */}
+      {tab === "diag" && (
+        <>
+          <div className="stats">
+            <div className="stat">
+              <div className="label">عمال</div>
+              <div className="value teal">{stats?.workers ?? 0}</div>
+            </div>
+            <div className="stat">
+              <div className="label">حسابات إدارية</div>
+              <div className="value blue">{stats?.admins ?? 0}</div>
+            </div>
+            <div className="stat">
+              <div className="label">مستني تفعيل</div>
+              <div className="value amber">{stats?.pending ?? 0}</div>
+            </div>
+            <div className="stat">
+              <div className="label">عمليات مستنية رفع</div>
+              <div className={`value ${queue.length ? "red" : "green"}`}>
+                {queue.length}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid-2">
+            <div className="card">
+              <div className="card-title">📦 حجم الداتا</div>
+              <div className="row">
+                <span className="muted">سجلات حضور</span>
+                <b className="num">{stats?.attendance ?? 0}</b>
+              </div>
+              <div className="row">
+                <span className="muted">عمليات فلوس</span>
+                <b className="num">{stats?.withdrawals ?? 0}</b>
+              </div>
+              <div className="row">
+                <span className="muted">خصومات</span>
+                <b className="num">{stats?.deductions ?? 0}</b>
+              </div>
+              <div className="row">
+                <span className="muted">تسويات</span>
+                <b className="num">{stats?.settlements ?? 0}</b>
+              </div>
+              <div className="row">
+                <span className="muted">إشعارات</span>
+                <b className="num">{stats?.notifications ?? 0}</b>
+              </div>
+              <div className="row">
+                <span className="muted">سجل تعديلات</span>
+                <b className="num">{stats?.audit ?? 0}</b>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">🔧 حالة النظام</div>
+              <div className="row">
+                <span className="muted">الوضع</span>
+                <span className="badge teal">
+                  {DEMO_MODE ? "تجريبي" : "Supabase حقيقي"}
+                </span>
+              </div>
+              <div className="row">
+                <span className="muted">النت</span>
+                <span className={`badge ${navigator.onLine ? "green" : "red"}`}>
+                  {navigator.onLine ? "متصل" : "مفيش نت"}
+                </span>
+              </div>
+              <div className="row">
+                <span className="muted">عمليات مستنية</span>
+                <span className={`badge ${queue.length ? "amber" : "green"}`}>
+                  {queue.length}
+                </span>
+              </div>
+              {queue.slice(0, 6).map((op) => (
+                <div className="row" key={op.id}>
+                  <span className="small muted">
+                    {op.table} · {op.op}
+                  </span>
+                  <span className="small red">
+                    {op.last_error ? op.last_error.slice(0, 40) : `محاولة ${op.tries}`}
+                  </span>
+                </div>
+              ))}
+              <button className="btn btn-block mt" onClick={() => db.queue.clear()}>
+                🗑 امسح العمليات المستنية
+              </button>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title">🛠️ حلول سريعة</div>
+            <p className="small muted">
+              لو حد نسي اسم المستخدم → دور عليه في تبويب <b>كل اليوزرات</b> بالموبايل.
+              <br />
+              لو حد نسي كلمة السر → افتح حسابه واضغط <b>تعديل</b> → غيّر كلمة السر.
+              <br />
+              لو عمليات مش بترتفع → شوف <b>آخر خطأ</b> فوق، ولو لسه فيه مشكلة امسح
+              العمليات المستنية وخلي المستخدم يسجّل تاني.
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* ============ سجل التعديلات ============ */}
+      {tab === "audit" && (
+        <div className="card">
+          <div className="card-title">
+            <span>كل تعديل اتعمل في النظام — مين وإمتى</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>الوقت</th>
+                  <th>العملية</th>
+                  <th>التفاصيل</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id}>
+                    <td className="num small">
+                      {l.changed_at?.slice(0, 10)} {l.changed_at?.slice(11, 16)}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          l.action === "delete"
+                            ? "red"
+                            : l.action === "update"
+                            ? "amber"
+                            : "green"
+                        }`}
+                      >
+                        {l.action === "delete"
+                          ? "حذف"
+                          : l.action === "update"
+                          ? "تعديل"
+                          : "إضافة"}
+                      </span>
+                    </td>
+                    <td className="small">
+                      {names[l.changed_by] ?? "النظام"} — {l.table_name}
+                    </td>
+                  </tr>
+                ))}
+                {logs.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="center muted">
+                      مفيش تعديلات
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {editing && (
+        <EditUser
+          user={editing}
+          onClose={() => setEditing(null)}
+          onDone={async () => {
+            setEditing(null);
+            setMsg("تم الحفظ ✅");
+            await load();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function EditUser({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: Profile;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [fullName, setFullName] = useState(user.full_name);
+  const [username, setUsername] = useState(user.username ?? "");
+  const [role, setRole] = useState(user.role);
+  const [status, setStatus] = useState(user.status);
+  const [wage, setWage] = useState(String(user.daily_wage || ""));
+  const [active, setActive] = useState(user.is_active);
+  const [newPass, setNewPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function save() {
+    setErr("");
+    setBusy(true);
+    try {
+      if (!DEMO_MODE) {
+        const { error } = await supabase.rpc("admin_update_user", {
+          p_user_id: user.id,
+          p_full_name: fullName,
+          p_username: username,
+          p_role: role,
+          p_status: status,
+          p_daily_wage: wage ? Number(wage) : null,
+          p_is_active: active,
+        });
+        if (error) throw new Error(error.message);
+
+        if (newPass.trim().length >= 4) {
+          const { error: pErr } = await supabase.rpc("reset_worker_password", {
+            p_worker_id: user.id,
+            p_password: newPass.trim(),
+          });
+          if (pErr) throw new Error(pErr.message);
+        }
+      }
+      onDone();
+    } catch (e: any) {
+      setErr(e.message ?? "حصل خطأ");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <Modal title={`✏️ تعديل ${user.full_name}`} onClose={onClose}>
+      {err && <div className="alert error">{err}</div>}
+
+      <label className="field">
+        <span>الاسم</span>
+        <input
+          className="input"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+        />
+      </label>
+
+      <label className="field">
+        <span>اسم المستخدم</span>
+        <input
+          className="input"
+          dir="ltr"
+          value={username}
+          onChange={(e) => setUsername(e.target.value.replace(/\s/g, ""))}
+        />
+      </label>
+
+      <div className="grid-2">
+        <label className="field">
+          <span>الدور</span>
+          <select
+            className="input"
+            value={role}
+            onChange={(e) => setRole(e.target.value as any)}
+          >
+            <option value="worker">👷 عامل</option>
+            <option value="owner">👑 مالك</option>
+            <option value="manager">🧑‍💼 مدير</option>
+            <option value="developer">🛠️ مطوّر</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>الحالة</span>
+          <select
+            className="input"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as any)}
+          >
+            <option value="active">✅ شغّال</option>
+            <option value="pending">⏳ مستني تفعيل</option>
+            <option value="suspended">⏸ موقوف</option>
+            <option value="rejected">🚫 مرفوض</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="grid-2">
+        <label className="field">
+          <span>اليومية</span>
+          <input
+            className="input"
+            inputMode="decimal"
+            value={wage}
+            onChange={(e) => setWage(e.target.value.replace(/[^\d.]/g, ""))}
+          />
+        </label>
+
+        <label className="field">
+          <span>مسموح يدخل؟</span>
+          <select
+            className="input"
+            value={active ? "1" : "0"}
+            onChange={(e) => setActive(e.target.value === "1")}
+          >
+            <option value="1">أيوه</option>
+            <option value="0">لأ</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="field">
+        <span>🔑 كلمة سر جديدة (سيبه فاضي لو مش عايز تغيّر)</span>
+        <input
+          className="input"
+          value={newPass}
+          onChange={(e) => setNewPass(e.target.value)}
+          placeholder="4 حروف على الأقل"
+        />
+      </label>
+
+      <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
+        {busy ? "جاري الحفظ..." : "حفظ"}
+      </button>
+    </Modal>
+  );
+}

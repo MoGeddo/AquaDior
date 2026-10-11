@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>افتح التطبيق في تاب جديد</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #0f766e 0%, #115e59 45%, #0b3b38 100%);
+    font-family: system-ui, "Segoe UI", Tahoma, sans-serif;
+    padding: 20px;
+  }
+  .card {
+    background: #fff; border-radius: 24px; padding: 32px 24px;
+    max-width: 480px; width: 100%;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+    text-align: center;
+  }
+  .logo {
+    width: 76px; height: 76px; margin: 0 auto 16px;
+    background: #0f766e; border-radius: 20px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; color: #0f172a; }
+  .sub { color: #64748b; font-size: 13px; margin: 0 0 22px; line-height: 1.8; }
+
+  .linkbox {
+    background: #f1f5f9; border: 1px dashed #94a3b8; border-radius: 12px;
+    padding: 12px; margin-bottom: 12px;
+    font-family: monospace; font-size: 13px; color: #0f172a;
+    word-break: break-all; direction: ltr; text-align: left;
+  }
+  .btn {
+    display: block; width: 100%; border: 0; cursor: pointer;
+    padding: 16px; border-radius: 14px; font-size: 17px; font-weight: 700;
+    margin-bottom: 10px; font-family: inherit;
+  }
+  .btn-main { background: #0f766e; color: #fff; }
+  .btn-copy { background: #e2e8f0; color: #0f172a; font-size: 15px; }
+  .btn:active { transform: scale(.98); }
+
+  .steps {
+    margin-top: 20px; padding: 16px; background: #fef3c7;
+    border-radius: 14px; font-size: 13px; color: #92400e;
+    line-height: 2; text-align: right;
+  }
+  .ok { background: #dcfce7; color: #166534; padding: 14px; border-radius: 12px;
+        font-size: 13px; line-height: 1.9; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <svg viewBox="0 0 512 512" width="46" height="46">
+        <path d="M120 300 a136 136 0 0 1 272 0 v18 H120 z" fill="#ffffff" />
+        <rect x="96" y="318" width="320" height="30" rx="15" fill="#ffffff" />
+        <path d="M186 236 l30 30 62 -66" stroke="#0f766e" stroke-width="26" fill="none"
+              stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </div>
+
+    <h1>افتح التطبيق في تاب جديد</h1>
+    <p class="sub">
+      التطبيق لازم يفتح في <b>صفحة كاملة</b> عشان يقدر يتكلم مع الداتابيز.<br>
+      الإطار اللي جنب الشات بيمنع ده.
+    </p>
+
+    <div class="linkbox" id="linkBox">...</div>
+
+    <button class="btn btn-copy" onclick="copyLink()">📋 انسخ اللينك</button>
+    <button class="btn btn-main" onclick="openApp()">🚀 افتح التطبيق في تاب جديد</button>
+
+    <div class="steps">
+      <b>لو الزر ماشتغلش، اعمل كده:</b><br>
+      1. دوس <b>📋 انسخ اللينك</b><br>
+      2. افتح <b>تاب جديد</b> في المتصفح (Ctrl + T)<br>
+      3. الصق اللينك في شريط العنوان واضغط <b>Enter</b><br>
+      4. دوس <b>Ctrl + Shift + R</b>
+    </div>
+
+    <div class="ok" id="msg" style="display:none">✅ تم نسخ اللينك!</div>
+  </div>
+
+<script>
+  var APP = window.location.origin + "/?v=3";
+  document.getElementById("linkBox").textContent = APP;
+
+  function copyLink() {
+    navigator.clipboard.writeText(APP).then(function () {
+      document.getElementById("msg").style.display = "block";
+      setTimeout(function () { document.getElementById("msg").style.display = "none"; }, 2500);
+    });
+  }
+  function openApp() {
+    var w = window.open(APP, "_blank");
+    if (!w) {
+      alert("المتصفح منع الفتح التلقائي.\n\nدوس 📋 انسخ اللينك، وبعدين افتح تاب جديد (Ctrl+T) والصقه.");
+    }
+  }
+</script>
+</body>
+</html>
