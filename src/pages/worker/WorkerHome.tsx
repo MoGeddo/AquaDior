@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useOutletContext, useNavigate } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import { useAuth } from "../../store/auth";
 import { supabase } from "../../lib/supabase";
 import { enqueue, isConnectionError } from "../../lib/db";
@@ -9,20 +9,8 @@ import type { WorkerOutletContext } from "./WorkerLayout";
 import MoneyModal from "../../components/MoneyModal";
 import ProjectAddModal from "../../components/ProjectAddModal";
 
-function getGeo(): Promise<{ lat: number; lng: number } | null> {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
-      () => resolve(null),
-      { timeout: 8000, enableHighAccuracy: false, maximumAge: 60000 }
-    );
-  });
-}
-
 export default function WorkerHome() {
   const { profile } = useAuth();
-  const nav = useNavigate();
   const ctx = useOutletContext<WorkerOutletContext>();
   const reloadWorkerData = ctx.reload;
   const [pickedProjectIds, setPickedProjectIds] = useState<string[]>([]);
@@ -33,25 +21,6 @@ export default function WorkerHome() {
   const [msg, setMsg] = useState<{ type: "success" | "info" | "error"; text: string } | null>(null);
   const [showMoney, setShowMoney] = useState(false);
   const [showProject, setShowProject] = useState(false);
-  const [gpsEnabled, setGpsEnabled] = useState(false);
-  const [gpsConfigLoaded, setGpsConfigLoaded] = useState(false);
-  const [gpsConfigError, setGpsConfigError] = useState<string | null>(null);
-
-  const loadGpsConfig = useCallback(async () => {
-    setGpsConfigLoaded(false);
-    setGpsConfigError(null);
-    try {
-      const { data, error } = await supabase.rpc("worker_app_config");
-      if (error) throw error;
-      setGpsEnabled(data?.gps_enabled === true);
-    } catch (error: any) {
-      setGpsEnabled(false);
-      setGpsConfigError(error?.message ?? "تعذر تحميل إعداد تسجيل الموقع");
-    } finally {
-      setGpsConfigLoaded(true);
-    }
-  }, []);
-
   const loadToday = useCallback(async () => {
     if (!profile) return false;
     const { data, error } = await supabase
@@ -84,8 +53,7 @@ export default function WorkerHome() {
 
   useEffect(() => {
     void loadToday();
-    void loadGpsConfig();
-  }, [loadToday, loadGpsConfig]);
+  }, [loadToday]);
 
   useEffect(() => {
     setPickedProjectIds((current) => {
@@ -110,23 +78,15 @@ export default function WorkerHome() {
 
   async function register() {
     if (!profile) return;
-    if (!gpsConfigLoaded) {
-      setMsg({ type: "info", text: "جاري تحميل إعدادات الموقع؛ حاول بعد لحظات" });
-      return;
-    }
-    if (gpsConfigError) {
-      setMsg({ type: "error", text: "تعذر التحقق من إعداد GPS؛ أعد تحميل الإعداد قبل تسجيل الحضور" });
-      return;
-    }
     if (ctx.loading || ctx.loadError) {
       setMsg({ type: "error", text: "بيانات حسابك لم تكتمل؛ أعد المحاولة قبل تسجيل الحضور" });
       return;
     }
-    if (ctx.hasAssignedProjects && ctx.projects.length === 0) {
-      setMsg({ type: "error", text: "ليس لديك مشروع نشط؛ راجع المالك قبل تسجيل الحضور" });
+    if (ctx.projects.length === 0) {
+      setMsg({ type: "error", text: "لا توجد مشاريع مفتوحة حاليًا؛ اطلب من المالك فتح مشروع قبل تسجيل الحضور" });
       return;
     }
-    if (ctx.projects.length > 0 && pickedProjectIds.length === 0) {
+    if (pickedProjectIds.length === 0) {
       setMsg({ type: "error", text: "اختار مشروعًا واحدًا على الأقل اشتغلت فيه اليوم" });
       return;
     }
@@ -134,17 +94,10 @@ export default function WorkerHome() {
     setBusy(true);
     setMsg(null);
     try {
-      const geo = gpsEnabled ? await getGeo() : null;
-      if (gpsEnabled && !geo) {
-        setMsg({ type: "error", text: "تعذر تحديد موقعك. اسمح للموقع في المتصفح ثم حاول مرة أخرى" });
-        return;
-      }
       const args = {
         p_worker_id: profile.id,
         p_work_date: todayStr(),
         p_project_ids: pickedProjectIds,
-        p_lat: geo?.lat ?? null,
-        p_lng: geo?.lng ?? null,
         p_note: null,
       };
       let queued = false;
@@ -181,33 +134,9 @@ export default function WorkerHome() {
   const done = Boolean(today) || attendanceQueued;
   const existingProjectIds = todayProjects.map((record) => record.project_id);
 
-  if (ctx.hasAssignedProjects && ctx.projects.length === 0) {
-    return (
-      <div className="card center" style={{ padding: "32px 20px" }}>
-        <div style={{ fontSize: 48 }}>📦</div>
-        <h2 style={{ fontSize: 19, margin: "12px 0 8px" }}>مشاريعك الحالية مؤرشفة</h2>
-        <p className="muted" style={{ lineHeight: 1.9 }}>
-          بيانات حضورك ورصيدك العام محفوظة. افتح كشف الحساب لمراجعة الأيام والمشاريع القديمة.
-        </p>
-        <div className="card mt" style={{ textAlign: "right", boxShadow: "none" }}>
-          <div className="row"><span>استحقاقك العام</span><b className="num">{money(balance?.earned ?? 0)}</b></div>
-          <div className="row"><span>المسحوب</span><b className="num amber">{money(balance?.withdrawn_approved ?? 0)}</b></div>
-          <div className="row"><span>رصيدك</span><b className="num green">{money(balance?.balance ?? 0)}</b></div>
-        </div>
-        <button className="btn btn-block mt" onClick={() => setShowMoney(true)}>💵 طلب سحب من رصيدي العام</button>
-        <button className="btn btn-block mt" onClick={() => nav("/worker/statement")}>📋 كشف حسابي</button>
-        {showMoney && profile && <MoneyModal workerId={profile.id} balance={balance} onClose={() => setShowMoney(false)} onDone={(queued) => {
-          if (!queued) ctx.reload();
-          setMsg({ type: queued ? "info" : "success", text: queued ? "طلب الصرف محفوظ محليًا وبانتظار المزامنة" : "اتسجّل ✅" });
-        }} />}
-      </div>
-    );
-  }
-
   return (
     <>
       {msg && <div className={`alert ${msg.type}`} role="status">{msg.text}</div>}
-      {gpsConfigError && <div className="alert error" role="alert">تعذر تحميل إعداد GPS: {gpsConfigError} <button className="btn btn-sm" onClick={() => void loadGpsConfig()} disabled={busy}>إعادة المحاولة</button></div>}
 
       <div className="card worker-attendance-card">
         <div className="card-title">
@@ -241,17 +170,17 @@ export default function WorkerHome() {
               </div>
             ) : (
               <div className="alert info">
-                لم يُعيّن لك مشروع. يمكنك تسجيل حضورك مرة واحدة بدون ربط بمشروع؛ اطلب من الإدارة تعيين الموقع إذا كنت تعمل فيه.
+                لا توجد مشاريع مفتوحة حاليًا. اطلب من المالك فتح المشروع المطلوب، ثم اختره هنا عند تسجيل الحضور.
               </div>
             )}
             <div className="mt">
               <button
                 className="btn-hero primary"
                 onClick={() => void register()}
-                disabled={busy || ctx.loading || Boolean(ctx.loadError) || !gpsConfigLoaded || (ctx.projects.length > 0 && pickedProjectIds.length === 0)}
+                disabled={busy || ctx.loading || Boolean(ctx.loadError) || ctx.projects.length === 0 || pickedProjectIds.length === 0}
               >
-                <span>{busy ? (gpsEnabled ? "جاري تحديد موقعك وتسجيل الحضور…" : "جاري تسجيل الحضور…") : ctx.projects.length === 0 ? "سجّل حضورك النهاردة" : "⬇️ نزلت النهاردة"}</span>
-                <small>{busy ? "انتظر لحظات ولا تضغط مرة ثانية" : pickedProjectIds.length ? `في ${pickedProjectIds.length} مشروع` : ctx.projects.length === 0 ? "يومية واحدة — بدون مشروع محدد" : "سجّل حضورك مرة واحدة"}</small>
+                <span>{busy ? "جاري تسجيل الحضور…" : ctx.projects.length === 0 ? "لا توجد مشاريع مفتوحة" : "⬇️ نزلت النهاردة"}</span>
+                <small>{busy ? "انتظر لحظات ولا تضغط مرة ثانية" : pickedProjectIds.length ? `في ${pickedProjectIds.length} مشروع` : "اختار مشروعًا أو أكثر"}</small>
               </button>
             </div>
           </>

@@ -329,28 +329,13 @@ security definer
 set search_path = public, auth, extensions
 as $$
 declare
-  v_active_project_count integer;
   v_daily_wage numeric(10,2);
   v_refresh_snapshot boolean;
 begin
-  if new.project_id is null then
-    select count(*) into v_active_project_count
-    from public.worker_projects wp
-    join public.projects p on p.id = wp.project_id
-    where wp.worker_id = new.worker_id and p.status = 'active';
-    if v_active_project_count = 1 then
-      select wp.project_id into new.project_id
-      from public.worker_projects wp
-      join public.projects p on p.id = wp.project_id
-      where wp.worker_id = new.worker_id and p.status = 'active'
-      order by wp.joined_at desc limit 1;
-    end if;
-  end if;
-
   if tg_op = 'INSERT' then
     v_refresh_snapshot := true;
   else
-    -- Assignment/link edits must never rewrite a historical daily wage.
+    -- Project selections never alter an already-recorded daily wage.
     v_refresh_snapshot := new.daily_wage_snapshot is null;
   end if;
 
@@ -448,7 +433,7 @@ drop trigger if exists trg_guard_activity_sites on public.sites;
 create trigger trg_guard_activity_sites
   before insert or update or delete on public.sites
   for each row execute function public.guard_active_project_activity();
--- Assignment changes affect future attendance only; they remain editable while the project is active.
+-- Legacy guard helper retained for compatibility; assignment writes are rejected below and old guards are detached.
 create or replace function public.guard_worker_project_live()
 returns trigger
 language plpgsql
@@ -496,9 +481,38 @@ $$;
 
 drop trigger if exists trg_guard_activity_worker_projects on public.worker_projects;
 drop trigger if exists trg_guard_worker_project_live on public.worker_projects;
-create trigger trg_guard_worker_project_live
-  before insert or update or delete on public.worker_projects
-  for each row execute function public.guard_worker_project_live();
+-- Legacy assignment deletions are allowed for cleanup; writes are rejected below.
+
+-- Keep legacy assignment rows for history, but never create or edit them again.
+create or replace function public.reject_legacy_worker_project_assignment()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'تعيين المشاريع للعاملين متوقف؛ العامل يختار المشاريع المفتوحة عند تسجيل الحضور';
+end;
+$$;
+drop trigger if exists trg_reject_legacy_worker_project_assignment on public.worker_projects;
+create trigger trg_reject_legacy_worker_project_assignment
+  before insert or update on public.worker_projects
+  for each row execute function public.reject_legacy_worker_project_assignment();
+revoke all on function public.reject_legacy_worker_project_assignment() from public, anon, authenticated;
+
+create or replace function public.reject_legacy_site_worker_assignment()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'تعيين العمال للمواقع القديمة متوقف؛ العامل يختار الموقع المفتوح عند تسجيل الحضور';
+end;
+$$;
+drop trigger if exists trg_reject_legacy_site_worker_assignment on public.site_workers;
+create trigger trg_reject_legacy_site_worker_assignment
+  before insert or update on public.site_workers
+  for each row execute function public.reject_legacy_site_worker_assignment();
+revoke all on function public.reject_legacy_site_worker_assignment() from public, anon, authenticated;
 
 -- A project link may be added/removed only while that project is active. The
 -- attendance row and its wage snapshot remain single/global across all links.
@@ -646,9 +660,7 @@ end;
 $$;
 
 drop trigger if exists trg_guard_site_worker_assignment on public.site_workers;
-create trigger trg_guard_site_worker_assignment
-  before insert or update or delete on public.site_workers
-  for each row execute function public.guard_site_worker_assignment();
+-- Legacy site-assignment deletions are allowed for cleanup; writes are rejected above.
 
 -- Project closure + final, project-scoped settlement
 create or replace function public.close_project(p_project_id uuid)
@@ -717,10 +729,12 @@ security definer
 set search_path = public, auth, extensions
 as $$
   select exists (
-    select 1
-    from public.worker_projects wp
-    join public.projects p on p.id = wp.project_id
-    where wp.worker_id = p_worker_id and p.status = 'active'
+    select 1 from public.profiles worker
+    where worker.id = p_worker_id and worker.role = 'worker'
+      and worker.status = 'active' and worker.is_active = true
+  ) and exists (
+    select 1 from public.projects project
+    where project.status = 'active'
   );
 $$;
 
@@ -737,10 +751,6 @@ begin
       and p.status = 'active' and p.is_active = true
   ) then
     raise exception 'الحساب غير مفعّل';
-  end if;
-  if exists (select 1 from public.worker_projects where worker_id = p_worker_id)
-     and not public.has_active_project(p_worker_id) then
-    raise exception 'مفيش مشروع شغّال — تواصل مع المالك';
   end if;
 end;
 $$;
@@ -1203,77 +1213,50 @@ drop trigger if exists trg_notif_deduction on public.deductions;
 create trigger trg_notif_deduction after insert or update on public.deductions
   for each row execute function public.notify_deduction();
 
--- Notify the affected worker and the admin inbox when assignments change.
-create or replace function public.notify_worker_project_assignment()
-returns trigger
-language plpgsql
-security definer
-set search_path = public, auth, extensions
-as $$
-declare
-  v_worker_id uuid;
-  v_project_id uuid;
-  v_worker_name text;
-  v_project_name text;
-begin
-  if tg_op = 'INSERT' then
-    v_worker_id := new.worker_id;
-    v_project_id := new.project_id;
-    select full_name into v_worker_name from public.profiles where id = v_worker_id;
-    select name into v_project_name from public.projects where id = v_project_id;
-    insert into public.notifications (user_id, type, title, body, data)
-    values (v_worker_id, 'project_assigned', 'تم تعيينك على مشروع',
-      'تمت إضافتك إلى مشروع ' || coalesce(v_project_name, 'جديد'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id));
-    perform public.notify_admins('project_assignment', 'تعيين عامل لمشروع',
-      coalesce(v_worker_name, 'عامل') || ' — ' || coalesce(v_project_name, 'مشروع'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id, 'action', 'assigned'));
-    return new;
-  end if;
-
-  v_worker_id := old.worker_id;
-  v_project_id := old.project_id;
-  select full_name into v_worker_name from public.profiles where id = v_worker_id;
-  select name into v_project_name from public.projects where id = v_project_id;
-  if exists (select 1 from public.profiles where id = v_worker_id and role = 'worker') then
-    insert into public.notifications (user_id, type, title, body, data)
-    values (v_worker_id, 'project_unassigned', 'تمت إزالتك من مشروع',
-      'لم تعد ضمن فريق مشروع ' || coalesce(v_project_name, 'محذوف أو مؤرشف'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id));
-  end if;
-  perform public.notify_admins('project_assignment', 'إزالة عامل من مشروع',
-    coalesce(v_worker_name, 'عامل') || ' — ' || coalesce(v_project_name, 'مشروع'),
-    jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id, 'action', 'removed'));
-  return old;
-end;
-$$;
-
+-- Historical worker_projects rows are no longer worker assignments. Do not send
+-- misleading assigned/unassigned notifications when legacy rows are edited.
 drop trigger if exists trg_notif_worker_projects on public.worker_projects;
-create trigger trg_notif_worker_projects after insert or delete on public.worker_projects
-  for each row execute function public.notify_worker_project_assignment();
+drop function if exists public.notify_worker_project_assignment();
 
 -- Project creation, archiving and deletion are visible to all admin inboxes.
--- Workers currently assigned to an archived project are notified as well.
+-- Workers with attendance linked to an archived project are notified as well.
 create or replace function public.notify_project_event()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, auth, extensions
 as $$
+declare
+  v_opened boolean := false;
 begin
   if tg_op = 'INSERT' then
     perform public.notify_admins('project_created', 'تم إنشاء مشروع جديد',
       'تمت إضافة مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));
-    return new;
+    v_opened := new.status = 'active';
   elsif tg_op = 'DELETE' then
     perform public.notify_admins('project_deleted', 'تم حذف مشروع',
       'تم حذف مشروع ' || old.name,
       jsonb_build_object('project_id', old.id, 'project_name', old.name));
     return old;
+  else
+    v_opened := old.status is distinct from new.status and new.status = 'active';
   end if;
 
-  if old.status is distinct from new.status and new.status = 'closed' then
+  if v_opened then
+    if tg_op = 'UPDATE' then
+      perform public.notify_admins('project_opened', 'تم فتح مشروع',
+        'أصبح مشروع ' || new.name || ' متاحًا للعاملين',
+        jsonb_build_object('project_id', new.id, 'project_name', new.name));
+    end if;
+    insert into public.notifications (user_id, type, title, body, data)
+    select p.id, 'project_opened', 'مشروع مفتوح للعاملين',
+      'المشروع ' || new.name || ' متاح لكل العمال عند تسجيل الحضور',
+      jsonb_build_object('project_id', new.id, 'project_name', new.name)
+    from public.profiles p
+    where p.role = 'worker' and p.status = 'active' and p.is_active = true;
+  elsif tg_op = 'UPDATE'
+     and old.status is distinct from new.status and new.status = 'closed' then
     perform public.notify_admins('project_archived', 'تمت أرشفة مشروع',
       'تم إغلاق مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));
@@ -1281,14 +1264,16 @@ begin
     select distinct p.id, 'project_archived', 'تم إغلاق المشروع',
       'تم إغلاق مشروع ' || new.name || '؛ سجلات حضورك السابقة محفوظة في كشفك',
       jsonb_build_object('project_id', new.id, 'project_name', new.name)
-    from public.worker_projects wp
-    join public.profiles p on p.id = wp.worker_id
-    where wp.project_id = new.id and p.role = 'worker'
+    from public.attendance_projects ap
+    join public.attendance a on a.id = ap.attendance_id
+    join public.profiles p on p.id = a.worker_id
+    where ap.project_id = new.id and p.role = 'worker'
       and p.status = 'active' and p.is_active = true;
-  elsif old.name is distinct from new.name
-     or old.address is distinct from new.address
-     or old.description is distinct from new.description
-     or old.start_date is distinct from new.start_date then
+  elsif tg_op = 'UPDATE'
+     and (old.name is distinct from new.name
+       or old.address is distinct from new.address
+       or old.description is distinct from new.description
+       or old.start_date is distinct from new.start_date) then
     perform public.notify_admins('project_updated', 'تم تعديل بيانات مشروع',
       'تم تعديل بيانات مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));
@@ -1335,3 +1320,24 @@ create trigger trg_notif_settlement_paid after insert or update on public.settle
 commit;
 
 -- ==================== END operational notifications v2 ====================
+
+
+-- GPS has been removed from attendance capture. Keep lat/lng columns for old rows,
+-- but force all newly inserted attendance rows to store NULL coordinates.
+create or replace function public.clear_new_attendance_gps()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.lat := null;
+  new.lng := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_attendance_no_gps on public.attendance;
+create trigger trg_attendance_no_gps
+  before insert on public.attendance
+  for each row execute function public.clear_new_attendance_gps();
+revoke all on function public.clear_new_attendance_gps() from public, anon, authenticated;

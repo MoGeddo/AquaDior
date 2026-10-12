@@ -130,6 +130,7 @@ export interface AppSettings {
   auto_approve_limit: number;
   absence_deduction: number;
   day_lock_time: string;
+  /** Legacy settings compatibility only; attendance GPS is permanently disabled. */
   gps_enabled: boolean;
   currency: string;
 }
@@ -138,6 +139,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_approve_limit: 500,
   absence_deduction: 50,
   day_lock_time: "00:00",
-  gps_enabled: true,
+  gps_enabled: false,
   currency: "ج.م",
 };

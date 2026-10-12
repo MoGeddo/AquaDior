@@ -9,6 +9,7 @@ const ICONS: Record<string, string> = {
   account_rejected: "⚠️",
   account_suspended: "⛔",
   project_assigned: "🏗️",
+  project_opened: "🏗️",
   project_unassigned: "📍",
   project_archived: "📦",
   project_created: "🏗️",

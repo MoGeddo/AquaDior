@@ -6,16 +6,68 @@ const ALLOWED_QUEUE_RPCS = new Set([
   "register_withdrawal",
   "add_attendance_project",
 ]);
+const LEGACY_ATTENDANCE_RPCS = new Set(["register_attendance", "register_attendance_multi"]);
 
 let flushPromise: Promise<number> | null = null;
+let attendanceGpsQueueMigration: Promise<void> | null = null;
 let loopStarted = false;
 let loopTimer: number | null = null;
 let loopHandler: (() => void) | null = null;
+
+function withoutKeys(value: any, keys: string[]): { value: any; changed: boolean } {
+  if (!value || typeof value !== "object") return { value, changed: false };
+  if (Array.isArray(value)) {
+    let changed = false;
+    const items = value.map((item) => {
+      const result = withoutKeys(item, keys);
+      changed ||= result.changed;
+      return result.value;
+    });
+    return { value: changed ? items : value, changed };
+  }
+  const cleaned = { ...value };
+  let changed = false;
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+      changed = true;
+    }
+  }
+  return { value: changed ? cleaned : value, changed };
+}
+
+/** Remove coordinates persisted by an older app build before any queued RPC can replay. */
+function stripLegacyAttendanceGpsFromQueue(): Promise<void> {
+  if (!attendanceGpsQueueMigration) {
+    attendanceGpsQueueMigration = (async () => {
+      const operations = await db.queue.toArray();
+      for (const operation of operations) {
+        if (!operation.id) continue;
+        if (operation.table === "rpc" && LEGACY_ATTENDANCE_RPCS.has(operation.payload?.fn)) {
+          const result = withoutKeys(operation.payload?.args, ["p_lat", "p_lng", "lat", "lng"]);
+          if (result.changed) {
+            await db.queue.update(operation.id, {
+              payload: { ...operation.payload, args: result.value },
+            });
+          }
+        } else if (operation.table === "attendance") {
+          const result = withoutKeys(operation.payload, ["lat", "lng"]);
+          if (result.changed) await db.queue.update(operation.id, { payload: result.value });
+        }
+      }
+    })().catch((error) => {
+      attendanceGpsQueueMigration = null;
+      throw error;
+    });
+  }
+  return attendanceGpsQueueMigration;
+}
 
 /** Replay only for the same authenticated account that created the operation. */
 export async function flushQueue(): Promise<number> {
   if (flushPromise) return flushPromise;
   flushPromise = (async () => {
+    await stripLegacyAttendanceGpsFromQueue();
     const { data: auth, error: authError } = await supabase.auth.getSession();
     const sessionUserId = auth.session?.user?.id;
     if (authError || !sessionUserId) return 0;
@@ -92,8 +144,9 @@ export function startSyncLoop(): () => void {
   loopStarted = true;
 
   const run = async () => {
-    if (!navigator.onLine) return;
     try {
+      await stripLegacyAttendanceGpsFromQueue();
+      if (!navigator.onLine) return;
       const count = await flushQueue();
       if (count > 0) {
         window.dispatchEvent(new CustomEvent("queue-flushed", { detail: count }));

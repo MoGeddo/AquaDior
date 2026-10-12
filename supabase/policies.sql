@@ -90,9 +90,13 @@ drop policy if exists "projects delete" on public.projects;
 create policy "projects read" on public.projects for select
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.worker_projects wp
-      where wp.project_id = projects.id and wp.worker_id = auth.uid()
+    or (
+      projects.status = 'active'
+      and exists (
+        select 1 from public.profiles worker
+        where worker.id = auth.uid() and worker.role = 'worker'
+          and worker.status = 'active' and worker.is_active = true
+      )
     )
     or exists (
       select 1 from public.attendance_projects ap
@@ -114,19 +118,26 @@ drop policy if exists "sites write" on public.sites;
 create policy "sites read" on public.sites for select
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.site_workers sw
-      where sw.site_id = sites.id and sw.worker_id = auth.uid()
+    or (
+      sites.is_active = true
+      and (sites.project_id is null or exists (
+        select 1 from public.projects project
+        where project.id = sites.project_id and project.status = 'active'
+      ))
+      and exists (
+        select 1 from public.profiles worker
+        where worker.id = auth.uid() and worker.role = 'worker'
+          and worker.status = 'active' and worker.is_active = true
+      )
     )
     or exists (
-      select 1 from public.worker_projects wp
-      where wp.project_id = sites.project_id and wp.worker_id = auth.uid()
+      select 1 from public.attendance_sites ats
+      join public.attendance a on a.id = ats.attendance_id
+      where ats.site_id = sites.id and a.worker_id = auth.uid()
     )
   );
-create policy "sites insert" on public.sites for insert
-  with check (public.is_admin());
-create policy "sites update" on public.sites for update
-  using (public.is_admin()) with check (public.is_admin());
+-- The unified app manages sites as projects. Legacy site rows are read-only.
+revoke insert, update, delete on table public.sites from public, anon, authenticated;
 
 -- ---------- WORKER_PROJECTS ----------
 alter table public.worker_projects enable row level security;
@@ -136,9 +147,7 @@ drop policy if exists "wp write" on public.worker_projects;
 
 create policy "wp read" on public.worker_projects for select
   using (auth.uid() = worker_id or public.is_admin());
-create policy "wp write" on public.worker_projects for all
-  using (public.is_admin()) with check (public.is_admin());
--- Keep assignment writes behind the validated create/approve/save RPCs.
+-- Legacy worker-project rows are readable for compatibility only; no assignment writes.
 revoke insert, update, delete on table public.worker_projects from public, anon, authenticated;
 grant select on table public.worker_projects to authenticated;
 
@@ -150,8 +159,8 @@ drop policy if exists "sw write" on public.site_workers;
 
 create policy "sw read" on public.site_workers for select
   using (auth.uid() = worker_id or public.is_admin());
-create policy "sw write" on public.site_workers for all
-  using (public.is_admin()) with check (public.is_admin());
+-- Legacy site-worker assignments are read-only; current projects are self-selected.
+revoke insert, update, delete on table public.site_workers from public, anon, authenticated;
 
 -- ---------- ATTENDANCE ----------
 alter table public.attendance enable row level security;

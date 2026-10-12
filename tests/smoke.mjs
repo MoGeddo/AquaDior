@@ -32,10 +32,14 @@ const { window } = dom;
 // ---- polyfills اللي jsdom ناقصها ----
 window.matchMedia = window.matchMedia || ((q) => ({ matches: false, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }));
 window.scrollTo = () => {};
+const geolocationCalls = { count: 0 };
 Object.defineProperty(window.navigator, "geolocation", {
   configurable: true,
   value: {
-    getCurrentPosition: (success) => success({ coords: { latitude: 30.0444, longitude: 31.2357 } }),
+    getCurrentPosition: (success) => {
+      geolocationCalls.count += 1;
+      success({ coords: { latitude: 30.0444, longitude: 31.2357 } });
+    },
   },
 });
 window.alert = () => {};
@@ -101,6 +105,46 @@ async function readPendingOperations() {
     };
   });
 }
+async function seedLegacyGpsAttendanceOperation() {
+  return new Promise((resolve, reject) => {
+    const open = window.indexedDB.open("ommal-app", 2);
+    open.onupgradeneeded = () => {
+      const database = open.result;
+      if (database.objectStoreNames.contains("queue")) return;
+      const queue = database.createObjectStore("queue", { keyPath: "id", autoIncrement: true });
+      queue.createIndex("table", "table");
+      queue.createIndex("created_at", "created_at");
+      queue.createIndex("owner_id", "owner_id");
+      queue.createIndex("tries", "tries");
+    };
+    open.onerror = () => reject(open.error || new Error("تعذر تجهيز طابور الترحيل التجريبي"));
+    open.onsuccess = () => {
+      const database = open.result;
+      const transaction = database.transaction("queue", "readwrite");
+      const request = transaction.objectStore("queue").add({
+        table: "rpc",
+        op: "insert",
+        payload: {
+          fn: "register_attendance_multi",
+          args: {
+            p_worker_id: "legacy-queue-worker",
+            p_project_ids: ["legacy-queue-project"],
+            p_lat: 30.0444,
+            p_lng: 31.2357,
+          },
+        },
+        created_at: Date.now(),
+        owner_id: "legacy-queue-worker",
+        tries: 0,
+      });
+      let operationId;
+      request.onerror = () => { database.close(); reject(request.error || new Error("تعذر إضافة عينة الطابور")); };
+      request.onsuccess = () => { operationId = request.result; };
+      transaction.onerror = () => { database.close(); reject(transaction.error || new Error("تعذر حفظ عينة الطابور")); };
+      transaction.oncomplete = () => { database.close(); resolve(operationId); };
+    };
+  });
+}
 async function waitFor(fn, { timeout = 8000, label = "شرط" } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -142,6 +186,8 @@ async function login(username, password) {
 // ============================================================
 console.log("\n🏁 اختبار تشغيل التطبيق\n" + "=".repeat(64));
 
+const queueSanitized = new Promise((resolve) => window.addEventListener("queue-updated", resolve, { once: true }));
+const legacyGpsOperationId = await seedLegacyGpsAttendanceOperation();
 const script = window.document.createElement("script");
 script.textContent = readFileSync(BUNDLE, "utf8");
 window.document.head.appendChild(script);
@@ -160,6 +206,13 @@ check("فيه خانات اسم مستخدم وكلمة سر", $$("input").lengt
 check("فيه زرار تسجيل حساب جديد", /سجّل|تسجيل/.test(text()));
 check("خيار البقاء مسجّلًا متاح", !!$('input[type="checkbox"]'));
 check("اختبار اتصال قاعدة البيانات أُزيل من صفحة الدخول", !/اختبر الاتصال بالداتابيز/.test(text()));
+const queuePrivacyReady = await Promise.race([queueSanitized.then(() => true), sleep(5000).then(() => false)]);
+const legacyGpsOperation = (await readPendingOperations()).find((operation) => operation.id === legacyGpsOperationId);
+const legacyGpsArgs = legacyGpsOperation?.payload?.args ?? {};
+check(
+  "ترقية التطبيق تزيل إحداثيات GPS القديمة من طابور الحضور",
+  queuePrivacyReady && !!legacyGpsOperation && !("p_lat" in legacyGpsArgs) && !("p_lng" in legacyGpsArgs),
+);
 
 // ---- 1b) تجربة التسجيل المحلي الوهمي ----
 click(buttonByText(/سجّل حساب جديد/));
@@ -238,6 +291,9 @@ for (const [route, label] of ADMIN_ROUTES) {
     const crashed = /Cannot read|Application error|خطأ غير متوقع/i.test(t);
     const ok = t.trim().length > 50 && !crashed && errors.length === errCountBefore;
     check(`${label}`, ok, ok ? `${t.trim().length} حرف` : (errors[errors.length - 1] || t).slice(0, 150).replace(/\s+/g, " "));
+    if (route === "/admin/settings") {
+      check("خيار تسجيل موقع الحضور أزيل من الإعدادات", !t.includes("تسجيل موقع الحضور (GPS)"));
+    }
   } catch (e) {
     check(`${label}`, false, e.message);
   }
@@ -256,6 +312,40 @@ check("زر حذف العامل مخفي عن المالك", !buttonByText(/🗑
 setPath("/admin/projects");
 await waitFor(() => window.location.pathname === "/admin/projects" && /إزاي الأرشفة بتشتغل/.test(text()), { label: "قائمة المشاريع للمالك" });
 check("الحذف النهائي للمشروع مخفي عن المالك", !buttonByText(/حذف نهائي/));
+
+setPath("/admin/workers");
+await waitFor(() => window.location.pathname === "/admin/workers" && !!buttonByText(/إضافة عامل/), { label: "إضافة عامل بلا تعيين مشروع" });
+click(buttonByText(/إضافة عامل/));
+await waitFor(() => $('[role="dialog"]') && /العامل يختار المشروع أو المشاريع بنفسه/.test(text()), { label: "نموذج إضافة العامل دون تعيين" });
+check("المالك لا يختار مشروعًا عند إضافة العامل", !$('[role="dialog"] select') && !/مشروع\/الموقع الأول/.test($('[role="dialog"]')?.textContent || ""));
+click($('[role="dialog"] [aria-label="إغلاق النافذة"]'));
+
+await waitFor(() => $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "صف العامل لاختبار عدم التعيين" });
+const ownerWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const ownerEditButton = [...(ownerWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /تفاصيل/.test(button.textContent || ""));
+if (ownerEditButton) {
+  click(ownerEditButton);
+  await waitFor(() => $('[role="dialog"]') && /المشاريع المفتوحة متاحة لكل العمال/.test(text()), { label: "تفاصيل العامل دون تعيين" });
+  const editDialog = $('[role="dialog"]');
+  const nonStatusOptions = [...(editDialog?.querySelectorAll("select option") ?? [])].filter((option) => !["1", "0"].includes(option.value));
+  check("تعديل العامل لا يعيّن مشاريع؛ كل المشاريع المفتوحة متاحة للجميع", /المشاريع المفتوحة متاحة لكل العمال/.test(editDialog?.textContent || "") && nonStatusOptions.length === 0 && !/المشاريع\/المواقع المعيّنة/.test(editDialog?.textContent || ""));
+  click($('[role="dialog"] [aria-label="إغلاق النافذة"]'));
+} else {
+  check("تعديل العامل لا يعيّن مشاريع؛ كل المشاريع المفتوحة متاحة للجميع", false, "زر التفاصيل غير ظاهر");
+}
+
+setPath("/admin/registrations");
+await waitFor(() => window.location.pathname === "/admin/registrations" && /طلبات التسجيل الجديدة/.test(text()) && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار التسجيل")), { label: "طلب تسجيل لاختبار التفعيل دون تعيين" });
+const pendingSmokeRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار التسجيل"));
+const activateSmokeButton = [...(pendingSmokeRow?.querySelectorAll("button") ?? [])].find((button) => /فعّل/.test(button.textContent || ""));
+if (activateSmokeButton) {
+  click(activateSmokeButton);
+  await waitFor(() => $('[role="dialog"]') && /العامل يختار بنفسه من المشاريع المفتوحة/.test(text()), { label: "اعتماد عامل بلا تعيين" });
+  check("اعتماد التسجيل يحدد اليومية فقط ولا يطلب مشروعًا", !$('[role="dialog"] select') && !/المشروع\/الموقع الأول/.test($('[role="dialog"]')?.textContent || ""));
+  click($('[role="dialog"] [aria-label="إغلاق النافذة"]'));
+} else {
+  check("اعتماد التسجيل يحدد اليومية فقط ولا يطلب مشروعًا", false, "زر التفعيل غير ظاهر");
+}
 
 const ownerOutBtn = buttonByText(/^خروج$/);
 if (ownerOutBtn) {
@@ -305,8 +395,8 @@ const workerNotificationsButton = $('button[aria-label^="الإشعارات"]');
 check("زر مركز إشعارات العامل ظاهر", !!workerNotificationsButton);
 if (workerNotificationsButton) {
   click(workerNotificationsButton);
-  await waitFor(() => /تم تعيينك على مشروع/.test(text()), { label: "عرض إشعار تعيين المشروع للعامل" });
-  check("العامل يرى إشعار تعيين مشروعه داخل التطبيق", /مشروع اختبار آلي/.test(text()));
+  await waitFor(() => /مشروع مفتوح للعاملين/.test(text()), { label: "عرض إشعار المشروع المفتوح للعامل" });
+  check("العامل يرى أن المشروع المفتوح متاح دون تعيين فردي", /مشروع اختبار آلي/.test(text()));
   check("زر Push الخارجي لا يتفعّل قبل إعداد المزود", text().includes("تنتظر ربط حساب OneSignal") && !buttonByText(/تفعيل إشعارات الهاتف/));
   const markNotificationRead = $('[aria-label^="تعليم"]');
   if (markNotificationRead) {
@@ -324,21 +414,34 @@ await sleep(700);
 const homeBefore = text();
 check("شاشة العامل الرئيسية بتعرض بياناته", homeBefore.length > 200, `${homeBefore.length} حرف`);
 check("أزرار الحضور والفلوس موجودة", !!buttonByText(/نزلت النهاردة/), "زر: نزلت النهاردة");
+check(
+  "العامل يرى كل المشاريع النشطة بلا صفوف تعيين",
+  window.__smokeDemoDB?.worker_projects?.length === 0 &&
+    ["مشروع اختبار آلي", "موقع اختبار آلي ثانٍ", "موقع اختبار آلي ثالث", "موقع اختبار آلي رابع"].every((name) => text().includes(name))
+);
 
-// ---- 5) تسجيل حضور واحد مرتبط بمشروعين ----
+// ---- 5) تسجيل حضور واحد مرتبط بأربعة مشاريع بلا تعيين مسبق ----
 const errBeforeAtt = errors.length;
 const firstProject = buttonByText(/مشروع اختبار آلي/);
 const secondProject = buttonByText(/موقع اختبار آلي ثانٍ/);
-await waitFor(() => firstProject && secondProject && !firstProject.disabled && !secondProject.disabled, { label: "جاهزية قائمة مشاريع العامل" });
-if (firstProject && secondProject) {
+const thirdProject = buttonByText(/موقع اختبار آلي ثالث/);
+const fourthProject = buttonByText(/موقع اختبار آلي رابع/);
+await waitFor(() => firstProject && secondProject && thirdProject && fourthProject && !firstProject.disabled && !secondProject.disabled && !thirdProject.disabled && !fourthProject.disabled, { label: "جاهزية جميع المشاريع المفتوحة للعامل" });
+if (firstProject && secondProject && thirdProject && fourthProject) {
   click(firstProject);
   await waitFor(() => !!buttonByText(/✓\s*مشروع اختبار آلي/), { label: "اختيار المشروع الأول" });
   const freshSecondProject = buttonByText(/موقع اختبار آلي ثانٍ/);
   if (freshSecondProject) click(freshSecondProject);
   await waitFor(() => !!buttonByText(/✓\s*موقع اختبار آلي ثانٍ/), { label: "اختيار المشروع الثاني" });
-  check("اختيار مشروعين للحضور اليومي", true);
+  const freshThirdProject = buttonByText(/موقع اختبار آلي ثالث/);
+  if (freshThirdProject) click(freshThirdProject);
+  await waitFor(() => !!buttonByText(/✓\s*موقع اختبار آلي ثالث/), { label: "اختيار المشروع الثالث" });
+  const freshFourthProject = buttonByText(/موقع اختبار آلي رابع/);
+  if (freshFourthProject) click(freshFourthProject);
+  await waitFor(() => !!buttonByText(/✓\s*موقع اختبار آلي رابع/), { label: "اختيار المشروع الرابع" });
+  check("العامل يختار أكثر من 3 مشاريع بلا حدّ ثابت", true);
 } else {
-  check("اختيار مشروعين للحضور اليومي", false, "قائمة المشاريع لم تظهر");
+  check("العامل يختار أكثر من 3 مشاريع بلا حدّ ثابت", false, "قائمة المشاريع لم تظهر كاملة");
 }
 await waitFor(() => {
   const button = buttonByText(/نزلت النهاردة/);
@@ -346,21 +449,23 @@ await waitFor(() => {
 }, { label: "تفعيل زر تسجيل الحضور" });
 const attBtn = buttonByText(/نزلت النهاردة/);
 if (attBtn) {
-  // GPS is enabled only in the isolated smoke fixture. Simulate a disconnected
-  // worker: capture coordinates now, queue the complete RPC payload, then sync.
+  // Simulate an offline worker. Attendance must queue only work/project data,
+  // without requesting the device location or attaching coordinates.
   setNetworkOnline(false);
   click(attBtn);
   try {
-    await waitFor(() => /الحضور محفوظ على الجهاز وبانتظار تحقق الخادم/.test(text()), { timeout: 9000, label: "حفظ الحضور والإحداثيات دون إنترنت" });
+    await waitFor(() => /الحضور محفوظ على الجهاز وبانتظار تحقق الخادم/.test(text()), { timeout: 9000, label: "حفظ الحضور دون إنترنت" });
     const pendingOps = await readPendingOperations();
     const attendanceOp = pendingOps.find((op) => op.table === "rpc" && op.payload?.fn === "register_attendance_multi");
-    check("الحضور بلا إنترنت يخزن إحداثيات GPS في الطابور", attendanceOp?.payload?.args?.p_lat === 30.0444 && attendanceOp?.payload?.args?.p_lng === 31.2357);
+    const queuedArgs = attendanceOp?.payload?.args ?? {};
+    check("طلب الحضور لا يحتوي إحداثيات GPS في طابور المزامنة", !("p_lat" in queuedArgs) && !("p_lng" in queuedArgs));
+    check("تسجيل الحضور لا يطلب إذن الموقع", geolocationCalls.count === 0);
     setNetworkOnline(true);
-    await waitFor(() => window.__smokeDemoDB?.attendance?.some((row) => row.lat === 30.0444 && row.lng === 31.2357), { timeout: 9000, label: "مزامنة إحداثيات الحضور بعد عودة الإنترنت" });
-    check("الخادم يستقبل نفس الإحداثيات بعد عودة الإنترنت", window.__smokeDemoDB?.attendance?.some((row) => row.lat === 30.0444 && row.lng === 31.2357));
+    await waitFor(() => window.__smokeDemoDB?.attendance?.some((row) => row.lat === null && row.lng === null), { timeout: 9000, label: "مزامنة حضور بلا إحداثيات بعد عودة الإنترنت" });
+    check("سجل الحضور بعد المزامنة لا يحتوي إحداثيات", window.__smokeDemoDB?.attendance?.some((row) => row.lat === null && row.lng === null));
     await waitFor(() => /المشاريع المسجلة لحضور اليوم/.test(text()) && !!buttonByText(/\+ مشروع/), { timeout: 9000, label: "تأكيد مزامنة الحضور وربطه بالمشاريع" });
     check("📅 تسجيل الحضور نجح", errors.length === errBeforeAtt, "سجل حضور واحد تزامن بعد عودة الاتصال");
-    check("الحضور مرتبط بالمشروعين المختارين", text().includes("مشروع اختبار آلي") && text().includes("موقع اختبار آلي ثانٍ"));
+    check("الحضور مرتبط بالمشاريع الأربعة المختارة", ["مشروع اختبار آلي", "موقع اختبار آلي ثانٍ", "موقع اختبار آلي ثالث", "موقع اختبار آلي رابع"].every((name) => text().includes(name)));
   } catch (e) {
     setNetworkOnline(true);
     check("📅 تسجيل الحضور نجح", false, e.message + " | " + (errors[errors.length - 1] || text()).slice(0, 240).replace(/\s+/g, " "));
@@ -381,8 +486,40 @@ try {
 const statCards = $$(".stats .stat");
 const dayStat = statCards.find((card) => /أيام الشغل/.test(card.textContent || ""));
 const earnedStat = statCards.find((card) => /استحقاق/.test(card.textContent || ""));
-check("مشروعان لا يكرران اليومية: يوم واحد فقط", dayStat?.querySelector(".value")?.textContent?.trim() === formattedOneDay);
+check("أربعة مشاريع لا تكرر اليومية: يوم واحد فقط", dayStat?.querySelector(".value")?.textContent?.trim() === formattedOneDay);
 check("استحقاق اليوم يظهر يومية واحدة (350 ج.م)", earnedStat?.querySelector(".value")?.textContent?.includes(formattedDailyWage));
+
+const workerOutForOnlineAttendance = buttonByText(/^خروج$/);
+if (workerOutForOnlineAttendance) {
+  click(workerOutForOnlineAttendance);
+  await waitFor(() => window.location.pathname === "/login", { label: "الخروج لاختبار الحضور المتصل" });
+}
+await login("worker02", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "الدخول للعامل لاختبار الاتصال" });
+await waitFor(() => {
+  const project = buttonByText(/مشروع اختبار آلي/);
+  return !!project && !project.disabled;
+}, { label: "قائمة المشاريع للحضور المتصل" });
+const onlineProject = buttonByText(/مشروع اختبار آلي/);
+if (onlineProject && onlineProject.getAttribute("aria-pressed") !== "true") click(onlineProject);
+await waitFor(() => {
+  const attendanceButton = buttonByText(/نزلت النهاردة/);
+  return !!attendanceButton && !attendanceButton.disabled;
+}, { label: "اختيار مشروع للحضور المتصل" });
+click(buttonByText(/نزلت النهاردة/));
+await waitFor(() => /اتسجّل حضورك النهاردة/.test(text()), { timeout: 9000, label: "تسجيل حضور متصل" });
+const onlineAttendanceArgs = window.__smokeDemoDB?.lastAttendanceRpcArgs?.args ?? {};
+check("الحضور المتصل لا يطلب إذن الموقع", geolocationCalls.count === 0);
+check("طلب الحضور المتصل لا يحتوي إحداثيات", !("p_lat" in onlineAttendanceArgs) && !("p_lng" in onlineAttendanceArgs));
+check("الحضور المتصل لا يخزن إحداثيات", window.__smokeDemoDB?.attendance?.some((row) => row.worker_id === "smoke-worker-online" && row.lat === null && row.lng === null));
+
+const onlineWorkerOut = buttonByText(/^خروج$/);
+if (onlineWorkerOut) {
+  click(onlineWorkerOut);
+  await waitFor(() => window.location.pathname === "/login", { label: "العودة للعامل الأساسي بعد اختبار الاتصال" });
+}
+await login("worker01", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "العودة للعامل الأساسي" });
 
 // ---- 6) أخذ فلوس (مبلغ صغير — المفروض يعدّي) ----
 await sleep(600);
@@ -485,7 +622,7 @@ const deductionWorkerRow = $$("tbody tr").find((row) => row.textContent?.include
 const detailsButton = [...(deductionWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /تفاصيل/.test(button.textContent || ""));
 if (detailsButton) {
   click(detailsButton);
-  await waitFor(() => $('[role="dialog"]') && /المشاريع\/المواقع المعيّنة/.test(text()), { label: "فتح تفاصيل العامل" });
+  await waitFor(() => $('[role="dialog"]') && /المشاريع المفتوحة متاحة لكل العمال/.test(text()), { label: "فتح تفاصيل العامل بلا تعيين مشاريع" });
   const deductionTab = [...($('[role="dialog"]')?.querySelectorAll("button") ?? [])].find((button) => /^خصم$/.test(button.textContent || ""));
   if (deductionTab) {
     click(deductionTab);
@@ -528,7 +665,7 @@ const correctedWorkerRow = $$("tbody tr").find((row) => row.textContent?.include
 const correctedDetails = [...(correctedWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /تفاصيل/.test(button.textContent || ""));
 if (correctedDetails) {
   click(correctedDetails);
-  await waitFor(() => $('[role="dialog"]') && /المشاريع\/المواقع المعيّنة/.test(text()), { label: "إعادة فتح تفاصيل العامل" });
+  await waitFor(() => $('[role="dialog"]') && /المشاريع المفتوحة متاحة لكل العمال/.test(text()), { label: "إعادة فتح تفاصيل العامل بلا تعيين مشاريع" });
   const correctedDeductionTab = [...($('[role="dialog"]')?.querySelectorAll("button") ?? [])].find((button) => /^خصم$/.test(button.textContent || ""));
   if (correctedDeductionTab) {
     click(correctedDeductionTab);

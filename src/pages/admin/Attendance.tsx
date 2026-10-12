@@ -61,26 +61,9 @@ export default function Attendance() {
       namesByAttendance.set(link.attendance_id, names);
     }
 
-    let workerRows = (workers ?? []) as Profile[];
-    if (projectFilter) {
-      const { data: assignments, error: assignmentError } = await supabase
-        .from("worker_projects")
-        .select("worker_id")
-        .eq("project_id", projectFilter);
-      if (assignmentError) {
-        setMsg(`تعذر تحميل تعيينات المشروع: ${assignmentError.message}`);
-        return;
-      }
-      const ids = new Set((assignments ?? []).map((assignment: any) => assignment.worker_id));
-      const attendanceIdToWorker = new Map(attendance.map((record) => [record.id, record.worker_id]));
-      for (const link of linkRows) {
-        if (link.project_id === projectFilter) {
-          const workerId = attendanceIdToWorker.get(link.attendance_id);
-          if (workerId) ids.add(workerId);
-        }
-      }
-      workerRows = workerRows.filter((worker) => ids.has(worker.id));
-    }
+    // Projects are open to all active workers; filtering by project does not
+    // imply that the owner assigned specific workers to it.
+    const workerRows = (workers ?? []) as Profile[];
 
     setRows(workerRows.map((worker) => {
       const att = attendanceByWorker.get(worker.id) ?? null;
@@ -91,7 +74,7 @@ export default function Attendance() {
       };
     }));
     setMsg("");
-  }, [date, projectFilter]);
+  }, [date]);
 
   useEffect(() => { void load(); }, [load]);
 

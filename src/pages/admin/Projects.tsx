@@ -29,7 +29,7 @@ function downloadCsv(filename: string, data: any) {
     csvRow("الحالة", proj.status),
     csvRow("أُرشف", proj.closed_at),
     "",
-    csvRow("=== العمال المعيّنون ==="),
+    csvRow("=== العمال الذين سجلوا حضورًا بالمشروع ==="),
     csvRow("الاسم", "الموبايل"),
   ];
   (data.workers ?? []).forEach((worker: any) =>
@@ -464,7 +464,7 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
           {proj.address && <div className="small muted mb">📍 {proj.address}</div>}
           <div className="stat-row wrap mb">
             <div className="stat">
-              <span>👷 العمال المرتبطون</span>
+              <span>👷 عمال سجّلوا حضورًا</span>
               <b>{workers.length}</b>
             </div>
             <div className="stat">
@@ -495,7 +495,7 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
               <table>
                 <thead>
                   <tr>
-                    <th>العامل المرتبط بالمشروع</th>
+                    <th>العامل الذي عمل بالمشروع</th>
                     <th>الموبايل</th>
                   </tr>
                 </thead>
@@ -507,7 +507,7 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
                     </tr>
                   ))}
                   {workers.length === 0 && (
-                    <tr><td colSpan={2} className="center muted">لا يوجد عامل مرتبط بهذا المشروع.</td></tr>
+                    <tr><td colSpan={2} className="center muted">لم يسجل أي عامل حضورًا بهذا المشروع بعد.</td></tr>
                   )}
                 </tbody>
               </table>

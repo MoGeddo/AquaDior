@@ -66,6 +66,16 @@ if (import.meta.env.VITE_SMOKE_TEST === "1") {
     is_active: true,
     status: "active",
   });
+  demoDB.profiles.push({
+    id: "smoke-worker-online",
+    full_name: "عامل اختبار الاتصال المباشر",
+    phone: "01000008888",
+    username: "worker02",
+    role: "worker",
+    daily_wage: 275,
+    is_active: true,
+    status: "active",
+  });
   demoDB.projects.push(
     {
       id: "smoke-project-1",
@@ -80,32 +90,29 @@ if (import.meta.env.VITE_SMOKE_TEST === "1") {
       status: "active",
       address: "",
       start_date: new Date().toISOString().slice(0, 10),
-    }
-  );
-  demoDB.worker_projects.push(
-    {
-      id: "smoke-assignment-1",
-      worker_id: "smoke-worker-1",
-      project_id: "smoke-project-1",
-      daily_wage: 350,
-      joined_at: new Date().toISOString(),
     },
     {
-      id: "smoke-assignment-2",
-      worker_id: "smoke-worker-1",
-      project_id: "smoke-project-2",
-      daily_wage: 350,
-      joined_at: new Date().toISOString(),
+      id: "smoke-project-3",
+      name: "موقع اختبار آلي ثالث",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
+    },
+    {
+      id: "smoke-project-4",
+      name: "موقع اختبار آلي رابع",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
     }
   );
-  demoDB.settings.find((setting: any) => setting.key === "app")!.value.gps_enabled = true;
   (window as any).__smokeDemoDB = demoDB;
   demoDB.notifications.push({
-    id: "smoke-notification-assignment",
+    id: "smoke-notification-project-opened",
     user_id: "smoke-worker-1",
-    type: "project_assigned",
-    title: "تم تعيينك على مشروع",
-    body: "تمت إضافتك إلى مشروع اختبار آلي",
+    type: "project_opened",
+    title: "مشروع مفتوح للعاملين",
+    body: "مشروع اختبار آلي متاح لكل العمال ويمكن اختياره عند تسجيل الحضور",
     data: { project_id: "smoke-project-1" },
     is_read: false,
     created_at: new Date().toISOString(),
@@ -159,13 +166,10 @@ function rows(table: string): any[] {
         start_date: p.start_date,
         closed_at: p.closed_at,
         archived_at: p.closed_at,
-        workers_count: new Set([
-          ...demoDB.worker_projects.filter((w: any) => w.project_id === p.id).map((w: any) => w.worker_id),
-          ...demoDB.attendance_projects
-            .filter((link: any) => link.project_id === p.id)
-            .map((link: any) => demoDB.attendance.find((a: any) => a.id === link.attendance_id)?.worker_id)
-            .filter(Boolean),
-        ]).size,
+        workers_count: new Set(demoDB.attendance_projects
+          .filter((link: any) => link.project_id === p.id)
+          .map((link: any) => demoDB.attendance.find((a: any) => a.id === link.attendance_id)?.worker_id)
+          .filter(Boolean)).size,
         attendance_count: new Set(demoDB.attendance_projects
           .filter((link: any) => link.project_id === p.id)
           .map((link: any) => link.attendance_id)).size,
@@ -540,9 +544,6 @@ const rpcMock = async (fn: string, args: any) => {
       .forEach((profile: any) => pushNotification(profile.id, type, title, body, data));
   };
   const activeProjects = () => demoDB.projects.filter((project: any) => project.status === "active");
-  const activeAssignments = (workerId: string) => demoDB.worker_projects.filter((assignment: any) =>
-    assignment.worker_id === workerId && activeProjects().some((project: any) => project.id === assignment.project_id)
-  );
   const linkProjects = (attendanceId: string, projectIds: string[]) => {
     for (const projectId of new Set(projectIds)) {
       if (!demoDB.attendance_projects.some((link: any) =>
@@ -555,7 +556,7 @@ const rpcMock = async (fn: string, args: any) => {
 
   if (fn === "health_check") return { data: "ok", error: null };
   if (fn === "worker_app_config") {
-    return { data: { gps_enabled: demoDB.settings[0]?.value?.gps_enabled === true }, error: null };
+    return { data: { gps_enabled: false }, error: null };
   }
   if (fn === "system_stats") {
     return { data: {
@@ -624,6 +625,9 @@ const rpcMock = async (fn: string, args: any) => {
   }
 
   if (fn === "register_attendance_multi" || fn === "admin_register_attendance_multi") {
+    if (import.meta.env.VITE_SMOKE_TEST === "1") {
+      demoDB.lastAttendanceRpcArgs = { fn, args: { ...args } };
+    }
     const isAdmin = fn === "admin_register_attendance_multi";
     const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
     if (!worker || worker.status === "rejected" || worker.is_active === false) {
@@ -633,19 +637,12 @@ const rpcMock = async (fn: string, args: any) => {
     if (selected.some((id: any) => typeof id !== "string") || new Set(selected).size !== selected.length) {
       return { data: null, error: { message: "قائمة المشاريع غير صحيحة" } };
     }
-    const assignments = activeAssignments(worker.id);
-    if (assignments.length && !selected.length) {
-      return { data: null, error: { message: "اختار مشروعًا نشطًا واحدًا على الأقل" } };
+    if (!selected.length) {
+      return { data: null, error: { message: "اختر مشروعًا نشطًا واحدًا على الأقل" } };
     }
-    if (!isAdmin && demoDB.worker_projects.some((row: any) => row.worker_id === worker.id) && !assignments.length) {
-      return { data: null, error: { message: "لا يوجد لديك مشروع نشط" } };
-    }
-    const allowed = new Set(assignments.map((assignment: any) => assignment.project_id));
-    if (selected.some((id: string) => !allowed.has(id))) {
-      return { data: null, error: { message: "المشروع غير نشط أو غير مخصص للعامل" } };
-    }
-    if (isAdmin && !selected.length) {
-      return { data: null, error: { message: "اختر المشروع/الموقع أولًا" } };
+    const openProjectIds = new Set(activeProjects().map((project: any) => project.id));
+    if (selected.some((id: string) => !openProjectIds.has(id))) {
+      return { data: null, error: { message: "اختر مشاريع مفتوحة فقط" } };
     }
     const existing = demoDB.attendance.find((row: any) =>
       row.worker_id === worker.id && row.work_date === args.p_work_date
@@ -659,8 +656,8 @@ const rpcMock = async (fn: string, args: any) => {
         work_date: args.p_work_date,
         daily_wage_snapshot: Number(worker.daily_wage ?? 0),
         source: isAdmin ? "admin" : "worker",
-        lat: args.p_lat ?? null,
-        lng: args.p_lng ?? null,
+        lat: null,
+        lng: null,
         note: args.p_note ?? null,
         created_by: isAdmin ? (currentUser?.id ?? "demo-owner") : worker.id,
         created_at: now(),
@@ -677,8 +674,6 @@ const rpcMock = async (fn: string, args: any) => {
         created_at: now(),
       });
     } else {
-      attendance.lat = args.p_lat ?? attendance.lat;
-      attendance.lng = args.p_lng ?? attendance.lng;
       attendance.note = args.p_note ?? attendance.note;
     }
     linkProjects(attendance.id, selected);
@@ -688,9 +683,8 @@ const rpcMock = async (fn: string, args: any) => {
   if (fn === "add_attendance_project") {
     const attendance = demoDB.attendance.find((row: any) => row.id === args.p_attendance_id);
     const project = activeProjects().find((row: any) => row.id === args.p_project_id);
-    if (!attendance || attendance.worker_id !== currentUser?.id || !project ||
-        !activeAssignments(attendance.worker_id).some((row: any) => row.project_id === project.id)) {
-      return { data: null, error: { message: "المشروع غير متاح أو غير مخصص لك" } };
+    if (!attendance || attendance.worker_id !== currentUser?.id || !project) {
+      return { data: null, error: { message: "المشروع غير متاح أو مغلق" } };
     }
     linkProjects(attendance.id, [project.id]);
     return { data: null, error: null };
@@ -740,12 +734,6 @@ const rpcMock = async (fn: string, args: any) => {
     worker.status = "active";
     worker.daily_wage = args.p_daily_wage ?? worker.daily_wage;
     worker.approved_at = now();
-    if (args.p_project_id && !demoDB.worker_projects.some((row: any) => row.worker_id === worker.id && row.project_id === args.p_project_id)) {
-      const project = activeProjects().find((row: any) => row.id === args.p_project_id);
-      demoDB.worker_projects.push({ id: uid(), worker_id: worker.id, project_id: args.p_project_id, daily_wage: worker.daily_wage, joined_at: now() });
-      pushNotification(worker.id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: args.p_project_id });
-      notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: args.p_project_id });
-    }
     demoDB.notifications.unshift({ id: uid(), user_id: worker.id, type: "account_approved", title: "تم تفعيل حسابك", body: "يمكنك الآن تسجيل الحضور ومراجعة رصيدك العام", data: {}, is_read: false, created_at: now() });
     return { data: null, error: null };
   }
@@ -767,12 +755,6 @@ const rpcMock = async (fn: string, args: any) => {
       daily_wage: args.p_daily_wage ?? 0, is_active: true, status: "active",
       created_at: now(),
     });
-    if (args.p_project_id) {
-      const project = activeProjects().find((row: any) => row.id === args.p_project_id);
-      demoDB.worker_projects.push({ id: uid(), worker_id: id, project_id: args.p_project_id, daily_wage: args.p_daily_wage ?? 0, joined_at: now() });
-      pushNotification(id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: args.p_project_id });
-      notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${args.p_full_name} — ${project?.name ?? "مشروع"}`, { worker_id: id, project_id: args.p_project_id });
-    }
     return { data: id, error: null };
   }
 
@@ -788,35 +770,6 @@ const rpcMock = async (fn: string, args: any) => {
     worker.phone = phone;
     worker.daily_wage = wage;
     worker.is_active = Boolean(args.p_is_active);
-    if (fn === "save_worker_admin_details" && Array.isArray(args.p_project_ids)) {
-      const selected = new Set(args.p_project_ids);
-      if ([...selected].some((id) => !activeProjects().some((project: any) => project.id === id))) {
-        return { data: null, error: { message: "قائمة المشاريع غير صالحة" } };
-      }
-      const previousIds = new Set(activeAssignments(worker.id).map((assignment: any) => assignment.project_id));
-      demoDB.worker_projects = demoDB.worker_projects.filter((assignment: any) =>
-        assignment.worker_id !== worker.id ||
-        !activeProjects().some((project: any) => project.id === assignment.project_id) ||
-        selected.has(assignment.project_id)
-      );
-      for (const projectId of selected) {
-        const existing = demoDB.worker_projects.find((assignment: any) => assignment.worker_id === worker.id && assignment.project_id === projectId);
-        if (existing) existing.daily_wage = wage;
-        else demoDB.worker_projects.push({ id: uid(), worker_id: worker.id, project_id: projectId, daily_wage: wage, joined_at: now() });
-      }
-      for (const projectId of previousIds) {
-        if (selected.has(projectId)) continue;
-        const project = demoDB.projects.find((row: any) => row.id === projectId);
-        pushNotification(worker.id, "project_unassigned", "تمت إزالتك من مشروع", `لم تعد ضمن فريق مشروع ${project?.name ?? "محذوف"}`, { project_id: projectId });
-        notifyAdmins("project_assignment", "إزالة عامل من مشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: projectId, action: "removed" });
-      }
-      for (const projectId of selected) {
-        if (previousIds.has(projectId)) continue;
-        const project = activeProjects().find((row: any) => row.id === projectId);
-        pushNotification(worker.id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: projectId });
-        notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: projectId, action: "assigned" });
-      }
-    }
     return { data: null, error: null };
   }
 
@@ -915,10 +868,7 @@ const rpcMock = async (fn: string, args: any) => {
     const project = demoDB.projects.find((row: any) => row.id === projectId);
     if (!project) return { data: null, error: { message: "المشروع غير موجود" } };
     const attendanceIds = new Set(demoDB.attendance_projects.filter((link: any) => link.project_id === projectId).map((link: any) => link.attendance_id));
-    const workerIds = new Set([
-      ...demoDB.worker_projects.filter((row: any) => row.project_id === projectId).map((row: any) => row.worker_id),
-      ...demoDB.attendance.filter((row: any) => attendanceIds.has(row.id)).map((row: any) => row.worker_id),
-    ]);
+    const workerIds = new Set(demoDB.attendance.filter((row: any) => attendanceIds.has(row.id)).map((row: any) => row.worker_id));
     const attendance = demoDB.attendance.filter((row: any) => attendanceIds.has(row.id)).map((row: any) => ({
       attendance_id: row.id,
       work_date: row.work_date,
@@ -948,8 +898,13 @@ const rpcMock = async (fn: string, args: any) => {
     project.archived_at = project.closed_at;
     project.end_date ??= project.closed_at.slice(0, 10);
     notifyAdmins("project_archived", "تمت أرشفة مشروع", `تم إغلاق مشروع ${project.name}`, { project_id: project.id, project_name: project.name });
-    const assignedIds = new Set<string>(demoDB.worker_projects.filter((row: any) => row.project_id === project.id).map((row: any) => String(row.worker_id)));
-    for (const workerId of assignedIds) {
+    const attendanceIds = new Set(demoDB.attendance_projects
+      .filter((link: any) => link.project_id === project.id)
+      .map((link: any) => link.attendance_id));
+    const workerIds = new Set<string>(demoDB.attendance
+      .filter((row: any) => attendanceIds.has(row.id))
+      .map((row: any) => String(row.worker_id)));
+    for (const workerId of workerIds) {
       pushNotification(workerId, "project_archived", "تم إغلاق المشروع", `تم إغلاق مشروع ${project.name}؛ سجلات حضورك السابقة محفوظة في كشفك`, { project_id: project.id, project_name: project.name });
     }
     return { data: null, error: null };

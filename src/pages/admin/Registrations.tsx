@@ -1,27 +1,22 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
-import type { Profile, Project } from "../../lib/types";
+import type { Profile } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 
 export default function Registrations() {
   const [rows, setRows] = useState<Profile[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [msg, setMsg] = useState("");
   const [approving, setApproving] = useState<Profile | null>(null);
   const [viewing, setViewing] = useState<Profile | null>(null);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
 
   async function load() {
-    const [{ data }, { data: p }] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-      supabase.from("projects").select("*").eq("status", "active").order("name"),
-    ]);
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
     setRows((data ?? []) as Profile[]);
-    setProjects((p ?? []) as Project[]);
   }
 
   useEffect(() => {
@@ -142,7 +137,7 @@ export default function Registrations() {
         <div className="card-title">إزاي بيشتغل؟</div>
         <p className="small muted">
           العامل بيسجّل بنفسه (موبايل + اسم زي البطاقة + صورة البطاقة).
-          حسابه بيتفتح أول ما تضغط "فعّل" وتحدد اليومية والمشروع/الموقع الأول. يمكن إضافة مشاريع أخرى لاحقًا من تفاصيل العامل.
+          حسابه بيتفتح أول ما تضغط "فعّل" وتحدد اليومية. العامل يختار المشروع أو المشاريع بنفسه عند تسجيل الحضور.
           لو رفضت، العامل بيوصلو إشعار بالسبب.
         </p>
       </div>
@@ -181,7 +176,6 @@ export default function Registrations() {
       {approving && (
         <ApproveModal
           worker={approving}
-          projects={projects}
           onClose={() => setApproving(null)}
           onDone={async () => {
             setApproving(null);
@@ -196,17 +190,14 @@ export default function Registrations() {
 
 function ApproveModal({
   worker,
-  projects,
   onClose,
   onDone,
 }: {
   worker: Profile;
-  projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [wage, setWage] = useState("");
-  const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -217,7 +208,6 @@ function ApproveModal({
     const { error } = await supabase.rpc("approve_worker", {
       p_worker_id: worker.id,
       p_daily_wage: Number(wage),
-      p_project_id: projectId || null,
     });
     setBusy(false);
     if (error) return setErr(error.message);
@@ -245,21 +235,7 @@ function ApproveModal({
         />
       </label>
 
-      <label className="field">
-        <span>المشروع/الموقع الأول</span>
-        <select
-          className="input"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-        >
-          <option value="">— من غير مشروع —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="small muted">بعد التفعيل، العامل يختار بنفسه من المشاريع المفتوحة عند تسجيل الحضور.</p>
 
 
       <button className="btn btn-primary btn-block" onClick={approve} disabled={busy || (!DEMO_MODE && !worker.id_card_url)}>

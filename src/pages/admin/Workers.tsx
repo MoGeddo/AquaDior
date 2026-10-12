@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { money } from "../../lib/calc";
-import type { Deduction, Project, WorkerBalance } from "../../lib/types";
+import type { Deduction, WorkerBalance } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "../../store/auth";
 
@@ -11,21 +11,15 @@ export default function Workers() {
   const [workers, setWorkers] = useState<WorkerBalance[]>([]);
   const [deletingWorkerId, setDeletingWorkerId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
-  const [projects, setProjects] = useState<Project[]>([]);
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<WorkerBalance | null>(null);
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState("");
   const [loadError, setLoadError] = useState("");
   async function load() {
-    const [wResult, pResult] = await Promise.all([
-      supabase.from("worker_balances").select("*").order("full_name"),
-      supabase.from("projects").select("*").eq("status", "active").order("name"),
-    ]);
-    const errors = [wResult.error, pResult.error].filter(Boolean);
-    setLoadError(errors.map((error: any) => error.message).join(" — "));
-    if (!wResult.error) setWorkers((wResult.data ?? []) as WorkerBalance[]);
-    if (!pResult.error) setProjects((pResult.data ?? []) as Project[]);
+    const { data, error } = await supabase.from("worker_balances").select("*").order("full_name");
+    setLoadError(error?.message ?? "");
+    if (!error) setWorkers((data ?? []) as WorkerBalance[]);
   }
 
   async function deleteWorker(worker: WorkerBalance) {
@@ -166,7 +160,6 @@ export default function Workers() {
 
       {adding && (
         <AddWorker
-          projects={projects}
           onClose={() => setAdding(false)}
           onDone={async () => {
             setAdding(false);
@@ -180,7 +173,6 @@ export default function Workers() {
         <EditWorker
           worker={editing}
           canResetPassword={canResetPassword}
-          projects={projects}
           onClose={() => setEditing(null)}
           onDone={async () => {
             setEditing(null);
@@ -194,11 +186,9 @@ export default function Workers() {
 
 /* ============ إضافة عامل ============ */
 function AddWorker({
-  projects,
   onClose,
   onDone,
 }: {
-  projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -208,7 +198,6 @@ function AddWorker({
     password: "",
     daily_wage: "",
   });
-  const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -224,7 +213,6 @@ function AddWorker({
       p_phone: f.phone.trim(),
       p_password: f.password,
       p_daily_wage: Number(f.daily_wage || 0),
-      p_project_id: projectId || null,
     });
     setBusy(false);
     if (error) return setErr(error.message);
@@ -270,21 +258,7 @@ function AddWorker({
           onChange={(e) => setF({ ...f, daily_wage: e.target.value })}
         />
       </label>
-      <label className="field">
-        <span>المشروع/الموقع الأول (اختياري)</span>
-        <select
-          className="input"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-        >
-          <option value="">— من غير مشروع —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="small muted">العامل يختار المشروع أو المشاريع بنفسه عند تسجيل الحضور من المشاريع المفتوحة.</p>
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? "جاري الحفظ..." : "حفظ"}
       </button>
@@ -296,13 +270,11 @@ function AddWorker({
 function EditWorker({
   worker,
   canResetPassword,
-  projects,
   onClose,
   onDone,
 }: {
   worker: WorkerBalance;
   canResetPassword: boolean;
-  projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -311,9 +283,6 @@ function EditWorker({
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [wage, setWage] = useState(String(worker.daily_wage));
   const [active, setActive] = useState(worker.is_active);
-  const [assignedProjectIds, setAssignedProjectIds] = useState<string[]>([]);
-  const [assignmentsLoaded, setAssignmentsLoaded] = useState(false);
-  const [assignmentLoadError, setAssignmentLoadError] = useState("");
   const [deductions, setDeductions] = useState<Deduction[]>([]);
   const [deductionLoadError, setDeductionLoadError] = useState("");
   const [dAmount, setDAmount] = useState("");
@@ -322,33 +291,6 @@ function EditWorker({
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAssignmentsLoaded(false);
-    setAssignmentLoadError("");
-    (async () => {
-      const assignmentResult = await supabase
-        .from("worker_projects")
-        .select("project_id, project:projects(status)")
-        .eq("worker_id", worker.worker_id);
-      if (cancelled) return;
-      if (assignmentResult.error) {
-        setAssignmentLoadError("تعذر تحميل مشاريع العامل؛ أعد تحميل الصفحة قبل تعديل البيانات.");
-        return;
-      }
-      const activeProjectIds = (assignmentResult.data ?? [])
-        .filter((row: any) => row.project?.status === "active")
-        .map((row: any) => row.project_id);
-      setAssignedProjectIds(activeProjectIds);
-      setAssignmentsLoaded(true);
-    })().catch((error: any) => {
-      if (!cancelled) setAssignmentLoadError(error?.message ?? "تعذر تحميل تعيينات العامل");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [worker.worker_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -377,8 +319,6 @@ function EditWorker({
     if (cleanPhone.length < 10 || cleanPhone.length > 15) return setErr("رقم الموبايل غير صحيح");
     if (!Number.isFinite(dailyWage) || dailyWage < 0) return setErr("اليومية غير صحيحة");
 
-    if (!assignmentsLoaded || assignmentLoadError) return setErr("تعذر تحميل المشاريع؛ أعد المحاولة قبل الحفظ");
-
     setBusy(true);
     const { error } = await supabase.rpc("save_worker_admin_details", {
       p_worker_id: worker.worker_id,
@@ -386,7 +326,6 @@ function EditWorker({
       p_phone: cleanPhone,
       p_daily_wage: dailyWage,
       p_is_active: active,
-      p_project_ids: assignedProjectIds,
     });
     setBusy(false);
     if (error) return setErr(error.message);
@@ -456,7 +395,6 @@ function EditWorker({
       </div>
 
       {err && <div className="alert error">{err}</div>}
-      {assignmentLoadError && <div className="alert error" role="alert">{assignmentLoadError}</div>}
       {ok && <div className="alert success">{ok}</div>}
 
       {tab === "info" && (
@@ -498,35 +436,8 @@ function EditWorker({
               <option value="0">موقوف</option>
             </select>
           </label>
-          <div className="field">
-            <span>المشاريع/المواقع المعيّنة</span>
-            {!assignmentsLoaded ? (
-              <div className="small muted">جاري تحميل المشاريع...</div>
-            ) : projects.length === 0 ? (
-              <div className="small muted">لا توجد مشاريع نشطة متاحة للتعيين.</div>
-            ) : (
-              <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
-                {projects.map((project) => {
-                  const selected = assignedProjectIds.includes(project.id);
-                  return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      className={`btn btn-sm ${selected ? "btn-primary" : ""}`}
-                      disabled={busy || Boolean(assignmentLoadError)}
-                      onClick={() => setAssignedProjectIds((current) => selected
-                        ? current.filter((id) => id !== project.id)
-                        : [...current, project.id])}
-                    >
-                      {selected ? "✓ " : ""}{project.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <div className="small muted">تغيير التعيين لا يغيّر الحضور السابق أو الرصيد العام.</div>
-          </div>
-          <button className="btn btn-primary btn-block" onClick={saveInfo} disabled={busy || !assignmentsLoaded || Boolean(assignmentLoadError)}>
+          <div className="alert info">المشاريع المفتوحة متاحة لكل العمال؛ العامل يختار مشروعه أو مشاريعه وقت تسجيل الحضور.</div>
+          <button className="btn btn-primary btn-block" onClick={saveInfo} disabled={busy}>
             حفظ
           </button>
         </>

@@ -456,77 +456,50 @@ drop trigger if exists trg_notif_deduction on public.deductions;
 create trigger trg_notif_deduction after insert or update on public.deductions
   for each row execute function public.notify_deduction();
 
--- Notify the affected worker and the admin inbox when assignments change.
-create or replace function public.notify_worker_project_assignment()
-returns trigger
-language plpgsql
-security definer
-set search_path = public, auth, extensions
-as $$
-declare
-  v_worker_id uuid;
-  v_project_id uuid;
-  v_worker_name text;
-  v_project_name text;
-begin
-  if tg_op = 'INSERT' then
-    v_worker_id := new.worker_id;
-    v_project_id := new.project_id;
-    select full_name into v_worker_name from public.profiles where id = v_worker_id;
-    select name into v_project_name from public.projects where id = v_project_id;
-    insert into public.notifications (user_id, type, title, body, data)
-    values (v_worker_id, 'project_assigned', 'تم تعيينك على مشروع',
-      'تمت إضافتك إلى مشروع ' || coalesce(v_project_name, 'جديد'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id));
-    perform public.notify_admins('project_assignment', 'تعيين عامل لمشروع',
-      coalesce(v_worker_name, 'عامل') || ' — ' || coalesce(v_project_name, 'مشروع'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id, 'action', 'assigned'));
-    return new;
-  end if;
-
-  v_worker_id := old.worker_id;
-  v_project_id := old.project_id;
-  select full_name into v_worker_name from public.profiles where id = v_worker_id;
-  select name into v_project_name from public.projects where id = v_project_id;
-  if exists (select 1 from public.profiles where id = v_worker_id and role = 'worker') then
-    insert into public.notifications (user_id, type, title, body, data)
-    values (v_worker_id, 'project_unassigned', 'تمت إزالتك من مشروع',
-      'لم تعد ضمن فريق مشروع ' || coalesce(v_project_name, 'محذوف أو مؤرشف'),
-      jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id));
-  end if;
-  perform public.notify_admins('project_assignment', 'إزالة عامل من مشروع',
-    coalesce(v_worker_name, 'عامل') || ' — ' || coalesce(v_project_name, 'مشروع'),
-    jsonb_build_object('worker_id', v_worker_id, 'project_id', v_project_id, 'action', 'removed'));
-  return old;
-end;
-$$;
-
+-- Historical worker_projects rows are no longer worker assignments. Do not send
+-- misleading assigned/unassigned notifications when legacy rows are edited.
 drop trigger if exists trg_notif_worker_projects on public.worker_projects;
-create trigger trg_notif_worker_projects after insert or delete on public.worker_projects
-  for each row execute function public.notify_worker_project_assignment();
+drop function if exists public.notify_worker_project_assignment();
 
 -- Project creation, archiving and deletion are visible to all admin inboxes.
--- Workers currently assigned to an archived project are notified as well.
+-- Workers with attendance linked to an archived project are notified as well.
 create or replace function public.notify_project_event()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, auth, extensions
 as $$
+declare
+  v_opened boolean := false;
 begin
   if tg_op = 'INSERT' then
     perform public.notify_admins('project_created', 'تم إنشاء مشروع جديد',
       'تمت إضافة مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));
-    return new;
+    v_opened := new.status = 'active';
   elsif tg_op = 'DELETE' then
     perform public.notify_admins('project_deleted', 'تم حذف مشروع',
       'تم حذف مشروع ' || old.name,
       jsonb_build_object('project_id', old.id, 'project_name', old.name));
     return old;
+  else
+    v_opened := old.status is distinct from new.status and new.status = 'active';
   end if;
 
-  if old.status is distinct from new.status and new.status = 'closed' then
+  if v_opened then
+    if tg_op = 'UPDATE' then
+      perform public.notify_admins('project_opened', 'تم فتح مشروع',
+        'أصبح مشروع ' || new.name || ' متاحًا للعاملين',
+        jsonb_build_object('project_id', new.id, 'project_name', new.name));
+    end if;
+    insert into public.notifications (user_id, type, title, body, data)
+    select p.id, 'project_opened', 'مشروع مفتوح للعاملين',
+      'المشروع ' || new.name || ' متاح لكل العمال عند تسجيل الحضور',
+      jsonb_build_object('project_id', new.id, 'project_name', new.name)
+    from public.profiles p
+    where p.role = 'worker' and p.status = 'active' and p.is_active = true;
+  elsif tg_op = 'UPDATE'
+     and old.status is distinct from new.status and new.status = 'closed' then
     perform public.notify_admins('project_archived', 'تمت أرشفة مشروع',
       'تم إغلاق مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));
@@ -534,14 +507,16 @@ begin
     select distinct p.id, 'project_archived', 'تم إغلاق المشروع',
       'تم إغلاق مشروع ' || new.name || '؛ سجلات حضورك السابقة محفوظة في كشفك',
       jsonb_build_object('project_id', new.id, 'project_name', new.name)
-    from public.worker_projects wp
-    join public.profiles p on p.id = wp.worker_id
-    where wp.project_id = new.id and p.role = 'worker'
+    from public.attendance_projects ap
+    join public.attendance a on a.id = ap.attendance_id
+    join public.profiles p on p.id = a.worker_id
+    where ap.project_id = new.id and p.role = 'worker'
       and p.status = 'active' and p.is_active = true;
-  elsif old.name is distinct from new.name
-     or old.address is distinct from new.address
-     or old.description is distinct from new.description
-     or old.start_date is distinct from new.start_date then
+  elsif tg_op = 'UPDATE'
+     and (old.name is distinct from new.name
+       or old.address is distinct from new.address
+       or old.description is distinct from new.description
+       or old.start_date is distinct from new.start_date) then
     perform public.notify_admins('project_updated', 'تم تعديل بيانات مشروع',
       'تم تعديل بيانات مشروع ' || new.name,
       jsonb_build_object('project_id', new.id, 'project_name', new.name));

@@ -55,7 +55,7 @@ end $$;
 create unique index if not exists idx_withdrawals_client_request
   on public.withdrawals(client_request_id) where client_request_id is not null;
 comment on table public.projects is
-  'Canonical project/worksite entity used for assignment and activity reporting.';
+  'Canonical active project/worksite; workers choose one or more open projects when recording daily attendance.';
 alter table public.attendance add column if not exists daily_wage_snapshot numeric(10,2);
 
 do $$
@@ -139,9 +139,13 @@ drop policy if exists "projects read" on public.projects;
 create policy "projects read" on public.projects for select
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.worker_projects wp
-      where wp.project_id = projects.id and wp.worker_id = auth.uid()
+    or (
+      projects.status = 'active'
+      and exists (
+        select 1 from public.profiles worker
+        where worker.id = auth.uid() and worker.role = 'worker'
+          and worker.status = 'active' and worker.is_active = true
+      )
     )
     or exists (
       select 1 from public.attendance_projects ap
@@ -152,6 +156,7 @@ create policy "projects read" on public.projects for select
 
 revoke insert, update, delete on table public.worker_projects from public, anon, authenticated;
 grant select on table public.worker_projects to authenticated;
+revoke insert, update, delete on table public.site_workers from public, anon, authenticated;
 revoke insert, update on table public.attendance from public, anon, authenticated;
 grant select, delete on table public.attendance to authenticated;
 
@@ -169,7 +174,7 @@ create policy "ap read" on public.attendance_projects for select
 create policy "ap admin write" on public.attendance_projects for all
   using (public.is_admin()) with check (public.is_admin());
 
--- Assignment changes affect future attendance only; they remain editable while the project is active.
+-- Legacy guard helper retained for compatibility; assignment writes are rejected below and old guards are detached.
 create or replace function public.guard_worker_project_live()
 returns trigger
 language plpgsql
@@ -217,9 +222,39 @@ $$;
 
 drop trigger if exists trg_guard_activity_worker_projects on public.worker_projects;
 drop trigger if exists trg_guard_worker_project_live on public.worker_projects;
-create trigger trg_guard_worker_project_live
-  before insert or update or delete on public.worker_projects
-  for each row execute function public.guard_worker_project_live();
+-- Legacy assignment deletions are allowed for cleanup; writes are rejected below.
+
+-- Keep legacy assignment rows for history, but never create or edit them again.
+create or replace function public.reject_legacy_worker_project_assignment()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'تعيين المشاريع للعاملين متوقف؛ العامل يختار المشاريع المفتوحة عند تسجيل الحضور';
+end;
+$$;
+drop trigger if exists trg_reject_legacy_worker_project_assignment on public.worker_projects;
+create trigger trg_reject_legacy_worker_project_assignment
+  before insert or update on public.worker_projects
+  for each row execute function public.reject_legacy_worker_project_assignment();
+revoke all on function public.reject_legacy_worker_project_assignment() from public, anon, authenticated;
+
+create or replace function public.reject_legacy_site_worker_assignment()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'تعيين العمال للمواقع القديمة متوقف؛ العامل يختار الموقع المفتوح عند تسجيل الحضور';
+end;
+$$;
+drop trigger if exists trg_guard_site_worker_assignment on public.site_workers;
+drop trigger if exists trg_reject_legacy_site_worker_assignment on public.site_workers;
+create trigger trg_reject_legacy_site_worker_assignment
+  before insert or update on public.site_workers
+  for each row execute function public.reject_legacy_site_worker_assignment();
+revoke all on function public.reject_legacy_site_worker_assignment() from public, anon, authenticated;
 
 -- A project link may be added/removed only while that project is active. The
 -- attendance row and its wage snapshot remain single/global across all links.
@@ -330,16 +365,10 @@ select
   p.closed_at,
   p.archived_at,
   (select pr.full_name from public.profiles pr where pr.id = p.archived_by) as archived_by_name,
-  (
-    select count(*) from (
-      select wp.worker_id from public.worker_projects wp where wp.project_id = p.id
-      union
-      select a.worker_id
-      from public.attendance_projects ap
-      join public.attendance a on a.id = ap.attendance_id
-      where ap.project_id = p.id
-    ) project_workers
-  ) as workers_count,
+  (select count(distinct a.worker_id)
+   from public.attendance_projects ap
+   join public.attendance a on a.id = ap.attendance_id
+   where ap.project_id = p.id) as workers_count,
   (select count(distinct ap.attendance_id)
    from public.attendance_projects ap where ap.project_id = p.id) as attendance_count
 from public.projects p
@@ -354,8 +383,8 @@ create or replace function public.register_attendance_multi(
   p_worker_id uuid,
   p_work_date date,
   p_project_ids uuid[] default '{}'::uuid[],
-  p_lat numeric default null,
-  p_lng numeric default null,
+  p_lat numeric default null, -- Legacy RPC parameter; ignored.
+  p_lng numeric default null, -- Legacy RPC parameter; ignored.
   p_note text default null
 ) returns uuid
 language plpgsql
@@ -366,7 +395,6 @@ declare
   v_today date := (now() at time zone 'Africa/Cairo')::date;
   v_ids uuid[] := coalesce(p_project_ids, '{}'::uuid[]);
   v_attendance_id uuid;
-  v_gps_setting text;
 begin
   if auth.uid() is null or auth.uid() <> p_worker_id then
     raise exception 'غير مسموح بتسجيل حضور مستخدم آخر';
@@ -377,13 +405,9 @@ begin
   if p_note is not null and length(p_note) > 500 then
     raise exception 'الملاحظة طويلة أكثر من اللازم';
   end if;
-  if (p_lat is not null and (p_lat < -90 or p_lat > 90))
-     or (p_lng is not null and (p_lng < -180 or p_lng > 180)) then
-    raise exception 'إحداثيات الموقع غير صحيحة';
-  end if;
-  if array_position(v_ids, null) is not null
+  if cardinality(v_ids) = 0 or array_position(v_ids, null) is not null
      or cardinality(v_ids) <> (select count(distinct x.project_id) from unnest(v_ids) x(project_id)) then
-    raise exception 'قائمة المشاريع غير صحيحة أو فيها تكرار';
+    raise exception 'اختار مشروعًا مفتوحًا واحدًا على الأقل، وتأكد من عدم تكرار الاختيارات';
   end if;
 
   perform 1 from public.profiles p
@@ -391,39 +415,20 @@ begin
     and p.status = 'active' and p.is_active = true
   for update;
   if not found then raise exception 'الحساب غير مفعّل'; end if;
-  perform public.require_active_project(auth.uid());
 
-  select value->>'gps_enabled' into v_gps_setting
-  from public.settings where key = 'app' for share;
-  if v_gps_setting is not null
-     and lower(trim(v_gps_setting)) not in ('true', 'false') then
-    raise exception 'إعداد تسجيل الموقع غير صحيح؛ تواصل مع الإدارة';
-  end if;
-  if lower(trim(coalesce(v_gps_setting, 'false'))) = 'true'
-     and (p_lat is null or p_lng is null) then
-    raise exception 'الموقع مطلوب لإتمام تسجيل الحضور؛ فعّل إذن الموقع وحاول مجددًا';
-  end if;
-
-  if cardinality(v_ids) > 0 and exists (
+  if exists (
     select 1
     from unnest(v_ids) chosen(project_id)
-    left join public.worker_projects wp
-      on wp.worker_id = auth.uid() and wp.project_id = chosen.project_id
     left join public.projects pr on pr.id = chosen.project_id
-    where wp.worker_id is null or pr.id is null or pr.status <> 'active'
+    where pr.id is null or pr.status <> 'active'
   ) then
-    raise exception 'فيه مشروع غير نشط أو غير مخصص لحسابك';
-  end if;
-  if cardinality(v_ids) = 0 and exists (
-    select 1 from public.worker_projects wp where wp.worker_id = auth.uid()
-  ) then
-    raise exception 'اختار مشروعًا نشطًا واحدًا على الأقل';
+    raise exception 'يمكن اختيار المشاريع المفتوحة فقط';
   end if;
 
   insert into public.attendance
     (worker_id, project_id, work_date, source, lat, lng, note, daily_wage_snapshot, created_by)
   values
-    (auth.uid(), v_ids[1], v_today, 'worker', p_lat, p_lng, p_note,
+    (auth.uid(), v_ids[1], v_today, 'worker', null, null, p_note,
      (select p.daily_wage from public.profiles p where p.id = auth.uid()), auth.uid())
   on conflict (worker_id, work_date) do nothing
   returning id into v_attendance_id;
@@ -478,11 +483,9 @@ begin
     select 1
     from unnest(v_ids) chosen(project_id)
     left join public.projects pr on pr.id = chosen.project_id
-    left join public.worker_projects wp
-      on wp.worker_id = p_worker_id and wp.project_id = chosen.project_id
-    where pr.id is null or pr.status <> 'active' or wp.worker_id is null
+    where pr.id is null or pr.status <> 'active'
   ) then
-    raise exception 'العامل غير معيّن لمشروع نشط من المشاريع المختارة';
+    raise exception 'اختر مشاريع مفتوحة فقط';
   end if;
 
   insert into public.attendance
@@ -538,22 +541,14 @@ begin
     and p.status = 'active' and p.is_active = true
   for update;
   if not found then raise exception 'الحساب غير مفعّل'; end if;
-  perform public.require_active_project(auth.uid());
 
   select * into v_attendance
   from public.attendance a
   where a.id = p_attendance_id and a.worker_id = auth.uid() and a.work_date = v_today
   for update;
   if not found then raise exception 'الحضور غير موجود أو ليس حضور اليوم'; end if;
-  if not exists (
-    select 1 from public.worker_projects wp
-    join public.projects p on p.id = wp.project_id
-    where wp.worker_id = auth.uid() and wp.project_id = p_project_id and p.status = 'active'
-  ) then
-    raise exception 'المشروع غير نشط أو غير مخصص لحسابك';
-  end if;
   perform 1 from public.projects where id = p_project_id and status = 'active' for share;
-  if not found then raise exception 'المشروع مؤرشف'; end if;
+  if not found then raise exception 'المشروع غير نشط أو غير موجود'; end if;
 
   insert into public.attendance_projects (attendance_id, project_id)
   values (v_attendance.id, p_project_id)
@@ -698,42 +693,22 @@ create or replace function public.save_worker_admin_details(
   p_phone text,
   p_daily_wage numeric,
   p_is_active boolean,
-  p_project_ids uuid[]
+  p_project_ids uuid[] default null
 ) returns void
 language plpgsql
 security definer
 set search_path = public, auth, extensions
 as $$
 begin
-  if not public.is_admin() then raise exception 'مش مسموح — تعديل العمال للإدارة النشطة فقط'; end if;
-  if p_project_ids is null or array_position(p_project_ids, null) is not null
-     or cardinality(p_project_ids) <> (
-       select count(distinct x.project_id) from unnest(p_project_ids) x(project_id)
-     ) then
-    raise exception 'قائمة المشاريع غير صحيحة';
-  end if;
-  if exists (
-    select 1 from unnest(p_project_ids) chosen(project_id)
-    left join public.projects p on p.id = chosen.project_id
-    where p.id is null or p.status <> 'active'
-  ) then
-    raise exception 'يمكن تعيين العامل إلى مشاريع/مواقع نشطة فقط';
+  if not public.is_admin() then
+    raise exception 'مش مسموح — تعديل العمال للإدارة النشطة فقط';
   end if;
 
+  -- p_project_ids is retained for PostgREST compatibility only. Workers
+  -- choose their projects at attendance; profile edits never change links.
   perform public.update_worker_details(
     p_worker_id, p_full_name, p_phone, p_daily_wage, p_is_active, null
   );
-
-  delete from public.worker_projects wp
-  using public.projects p
-  where wp.worker_id = p_worker_id and p.id = wp.project_id
-    and p.status = 'active' and not (p.id = any(p_project_ids));
-
-  insert into public.worker_projects (worker_id, project_id, daily_wage)
-  select p_worker_id, chosen.project_id, p_daily_wage
-  from unnest(p_project_ids) chosen(project_id)
-  on conflict (worker_id, project_id) do update
-  set daily_wage = excluded.daily_wage;
 end;
 $$;
 
@@ -816,9 +791,7 @@ begin
       select coalesce(jsonb_agg(t order by t.full_name), '[]'::jsonb) from (
         select pr.id as worker_id, pr.full_name, pr.phone
         from public.profiles pr
-        where exists (select 1 from public.worker_projects wp
-                      where wp.worker_id = pr.id and wp.project_id = p_project_id)
-           or exists (select 1 from public.attendance_projects ap
+        where exists (select 1 from public.attendance_projects ap
                       join public.attendance a on a.id = ap.attendance_id
                       where ap.project_id = p_project_id and a.worker_id = pr.id)
       ) t
@@ -891,5 +864,30 @@ revoke all on function public.register_attendance_multi(uuid, date, uuid[], nume
 revoke all on function public.admin_register_attendance_multi(uuid, date, uuid[]) from anon;
 revoke all on function public.add_attendance_project(uuid, uuid) from anon;
 revoke all on function public.save_worker_admin_details(uuid, text, text, numeric, boolean, uuid[]) from anon;
+
+
+-- GPS is no longer collected. Preserve old attendance rows but reject coordinates on new rows.
+create or replace function public.clear_new_attendance_gps()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.lat := null;
+  new.lng := null;
+  return new;
+end;
+$$;
+drop trigger if exists trg_attendance_no_gps on public.attendance;
+create trigger trg_attendance_no_gps
+  before insert on public.attendance
+  for each row execute function public.clear_new_attendance_gps();
+revoke all on function public.clear_new_attendance_gps() from public, anon, authenticated;
+update public.settings
+set value = jsonb_set(
+  case when jsonb_typeof(value) = 'object' then value else '{}'::jsonb end,
+  '{gps_enabled}', 'false'::jsonb, true
+), updated_at = now()
+where key = 'app';
 
 commit;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { enqueue, isConnectionError } from "../lib/db";
-import type { AssignedProject } from "../pages/worker/WorkerLayout";
+import type { AvailableProject } from "../pages/worker/WorkerLayout";
 import { Modal } from "./Modal";
 
 export default function ProjectAddModal({
@@ -14,7 +14,7 @@ export default function ProjectAddModal({
 }: {
   attendanceId: string;
   workerId: string;
-  projects: AssignedProject[];
+  projects: AvailableProject[];
   existing: string[];
   onClose: () => void;
   onDone: (queued: boolean) => void;

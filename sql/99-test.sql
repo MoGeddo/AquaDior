@@ -7,6 +7,8 @@ from (values
   ('table: projects', to_regclass('public.projects') is not null),
   ('table: worker_projects', to_regclass('public.worker_projects') is not null),
   ('table: attendance', to_regclass('public.attendance') is not null),
+  ('trigger: new attendance GPS cleared', to_regclass('public.attendance') is not null and exists (select 1 from pg_trigger where tgrelid = to_regclass('public.attendance')::oid and tgname = 'trg_attendance_no_gps' and not tgisinternal)),
+  ('setting: attendance GPS disabled', coalesce((select value->>'gps_enabled' from public.settings where key = 'app'), 'false') = 'false'),
   ('table: withdrawals', to_regclass('public.withdrawals') is not null),
   ('table: deductions', to_regclass('public.deductions') is not null),
   ('table: settlements', to_regclass('public.settlements') is not null),

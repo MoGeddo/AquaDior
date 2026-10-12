@@ -20,7 +20,7 @@ export default function SettingsPage() {
       return;
     }
     (data ?? []).forEach((r: any) => {
-      if (r.key === "app") setApp({ ...DEFAULT_SETTINGS, ...r.value });
+      if (r.key === "app") setApp({ ...DEFAULT_SETTINGS, ...r.value, gps_enabled: false });
       if (r.key === "telegram") setTgChat(r.value?.chat_id ?? "");
     });
   }
@@ -46,13 +46,13 @@ export default function SettingsPage() {
       const { error } = await supabase.from("settings").upsert(
         {
           key: "app",
-          value: { ...app, auto_approve_limit: limit, currency: app.currency.trim() || "ج.م" },
+          value: { ...app, gps_enabled: false, auto_approve_limit: limit, currency: app.currency.trim() || "ج.م" },
           updated_at: new Date().toISOString(),
         },
         { onConflict: "key" }
       );
       if (error) throw error;
-      setApp((current) => ({ ...current, auto_approve_limit: limit, currency: current.currency.trim() || "ج.م" }));
+      setApp((current) => ({ ...current, gps_enabled: false, auto_approve_limit: limit, currency: current.currency.trim() || "ج.م" }));
       setMsg("تم حفظ الإعدادات ✅");
     } catch (error: any) {
       setErr(error?.message ?? "تعذر حفظ الإعدادات");
@@ -133,23 +133,10 @@ export default function SettingsPage() {
               onChange={(e) => setApp({ ...app, currency: e.target.value })}
             />
           </label>
-          <label className="field">
-            <span>تسجيل موقع الحضور (GPS)</span>
-            <select
-              className="input"
-              value={app.gps_enabled ? "1" : "0"}
-              onChange={(e) =>
-                setApp({ ...app, gps_enabled: e.target.value === "1" })
-              }
-            >
-              <option value="1">مفعّل — يحفظ الإحداثيات للمراجعة فقط</option>
-              <option value="0">متوقف — لا يطلب الموقع</option>
-            </select>
-          </label>
         </div>
 
         <p className="small muted mb">
-          أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده. رمز العملة يخص رسائل تليجرام فقط؛ عرض المبالغ داخل التطبيق بالجنيه المصري.
+          تسجيل الحضور لا يطلب موقع الجهاز ولا يحفظ إحداثيات GPS؛ اختيار المشروع/الموقع يظل لتوثيق مكان العمل. أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده. رمز العملة يخص رسائل تليجرام فقط؛ عرض المبالغ داخل التطبيق بالجنيه المصري.
         </p>
         <div className="alert info mb">
           خصم الغياب الآلي وموعد قفل اليوم غير مفعّلين في هذه النسخة؛ الحضور لا يُخصم تلقائيًا بسبب الغياب.

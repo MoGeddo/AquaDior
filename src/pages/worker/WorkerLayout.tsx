@@ -7,22 +7,20 @@ import type { WorkerBalance } from "../../lib/types";
 import { AquaDiorShield } from "../../components/AquaDiorLogo";
 import NotificationCenter from "../../components/NotificationCenter";
 
-type AssignedProject = { id: string; name: string; status: "active" | "closed"; address: string | null };
+export type AvailableProject = { id: string; name: string; status: "active"; address: string | null };
 type WorkerOutletContext = {
   bal: WorkerBalance | null;
   reload: () => void;
   loading: boolean;
   loadError: string | null;
-  projects: AssignedProject[];
-  hasAssignedProjects: boolean;
+  projects: AvailableProject[];
 };
 
 export default function WorkerLayout() {
   const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const [bal, setBal] = useState<WorkerBalance | null>(null);
-  const [projects, setProjects] = useState<AssignedProject[]>([]);
-  const [hasAssignedProjects, setHasAssignedProjects] = useState(false);
+  const [projects, setProjects] = useState<AvailableProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -34,7 +32,7 @@ export default function WorkerLayout() {
     try {
       const [
         { data: balance, error: balanceError },
-        { data: assignments, error: assignmentError },
+        { data: activeProjects, error: projectError },
       ] = await Promise.all([
         supabase
           .from("worker_balances")
@@ -42,38 +40,19 @@ export default function WorkerLayout() {
           .eq("worker_id", profile.id)
           .maybeSingle(),
         supabase
-          .from("worker_projects")
-          .select("project_id, project:projects(id, name, status, address)")
-          .eq("worker_id", profile.id),
+          .from("projects")
+          .select("id, name, status, address")
+          .eq("status", "active")
+          .order("name"),
       ]);
-      const queryError = balanceError ?? assignmentError;
+      const queryError = balanceError ?? projectError;
       if (queryError) {
-        setLoadError(queryError.message ?? "تعذر تحميل بيانات الحساب");
+        setLoadError(queryError.message ?? "تعذر تحميل بيانات الحساب والمشاريع المفتوحة");
         return;
       }
 
-      const rows = (assignments ?? []) as any[];
-      const activeProjects: AssignedProject[] = rows
-        .map((row) => row.project)
-        .filter((project: any) => project?.status === "active")
-        .map((project: any) => ({
-          id: project.id,
-          name: project.name,
-          status: project.status,
-          address: project.address ?? null,
-        }));
-      const allProjects: AssignedProject[] = rows
-        .map((row) => row.project)
-        .filter((project: any) => project)
-        .map((project: any) => ({
-          id: project.id,
-          name: project.name,
-          status: project.status,
-          address: project.address ?? null,
-        }));
       setBal((balance as WorkerBalance | null) ?? null);
-      setProjects(activeProjects);
-      setHasAssignedProjects(allProjects.length > 0);
+      setProjects((activeProjects ?? []) as AvailableProject[]);
       setLoadError(null);
     } catch (error: any) {
       setLoadError(error?.message ?? "تعذر تحميل بيانات الحساب");
@@ -118,7 +97,6 @@ export default function WorkerLayout() {
     loading,
     loadError,
     projects,
-    hasAssignedProjects,
   };
 
   return (
@@ -158,7 +136,7 @@ export default function WorkerLayout() {
       <div className="page has-bottom-nav">
         {loadError && (
           <div className="alert error" role="alert">
-            تعذر تحميل الرصيد العام أو تعيينات المشاريع: {loadError}{" "}
+            تعذر تحميل الرصيد العام أو المشاريع المفتوحة: {loadError}{" "}
             <button className="btn btn-sm" onClick={() => void load()}>إعادة المحاولة</button>
           </div>
         )}
@@ -191,4 +169,4 @@ export default function WorkerLayout() {
   );
 }
 
-export type { AssignedProject, WorkerOutletContext };
+export type { WorkerOutletContext };

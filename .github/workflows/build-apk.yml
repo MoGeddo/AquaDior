@@ -94,7 +94,7 @@ jobs:
     needs: web
     runs-on: ubuntu-latest
     env:
-      # The app uses its own GPS only for attendance; do not enable OneSignal location collection.
+      # Attendance does not collect device location; keep OneSignal location collection disabled.
       ONESIGNAL_DISABLE_LOCATION: "true"
     steps:
       - name: تنزيل الكود

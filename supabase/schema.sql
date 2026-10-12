@@ -93,7 +93,7 @@ alter table public.projects add column if not exists closed_at timestamptz;
 alter table public.projects add column if not exists archived_at timestamptz;
 alter table public.projects add column if not exists archived_by uuid;
 comment on table public.projects is
-  'Canonical project/worksite entity used for assignment and activity reporting.';
+  'Canonical active project/worksite; workers choose one or more open projects when recording daily attendance.';
 
 -- ---------- 3. LEGACY SITES (retained for a guarded migration; not used by the app) ----------
 create table if not exists public.sites (
@@ -152,6 +152,26 @@ alter table public.attendance
   add column if not exists daily_wage_snapshot numeric(10,2);
 create index if not exists idx_attendance_worker_date
   on public.attendance(worker_id, work_date desc);
+
+-- GPS has been removed from attendance capture. Keep lat/lng columns for old rows,
+-- but force all newly inserted attendance rows to store NULL coordinates.
+create or replace function public.clear_new_attendance_gps()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.lat := null;
+  new.lng := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_attendance_no_gps on public.attendance;
+create trigger trg_attendance_no_gps
+  before insert on public.attendance
+  for each row execute function public.clear_new_attendance_gps();
+revoke all on function public.clear_new_attendance_gps() from public, anon, authenticated;
 
 -- Snapshot old rows at the wage currently used by the old view, so later wage
 -- changes cannot silently rewrite historical pay. Ambiguous old project links
@@ -308,7 +328,7 @@ create table if not exists public.settings (
 );
 
 insert into public.settings (key, value) values
-  ('app', '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":true,"currency":"ج.م"}'::jsonb),
+  ('app', '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
   ('telegram', '{"chat_id":""}'::jsonb)
 on conflict (key) do nothing;
 -- Telegram bot tokens must never be stored in the client-readable settings table.
