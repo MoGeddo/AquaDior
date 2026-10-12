@@ -103,7 +103,7 @@ create policy "projects read" on public.projects for select
 create policy "projects insert" on public.projects for insert
   with check (public.is_admin());
 -- Project status changes must go through close_project(); no direct UPDATE policy.
--- حذف المشاريع ممنوع حتى لا تمسح المواقع أو سجلات الرواتب/التسويات.
+-- لا يوجد حذف مباشر للمشاريع؛ الحذف الآمن للمطوّر فقط عبر RPC مقيّد بمنع فقدان أي سجل تاريخي.
 
 -- ---------- SITES ----------
 alter table public.sites enable row level security;

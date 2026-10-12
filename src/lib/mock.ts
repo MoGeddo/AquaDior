@@ -38,7 +38,9 @@ export const demoDB: any = {
     },
   ],
   projects: [] as any[],
+  sites: [] as any[],
   worker_projects: [] as any[],
+  site_workers: [] as any[],
   attendance: [] as any[],
   attendance_projects: [] as any[],
   withdrawals: [] as any[],
@@ -540,6 +542,58 @@ const rpcMock = async (fn: string, args: any) => {
     }, error: null };
   }
 
+  if (fn === "developer_delete_worker") {
+    const developer = demoDB.profiles.find((profile: any) =>
+      profile.id === currentUser?.id && profile.role === "developer" &&
+      profile.status === "active" && profile.is_active !== false
+    );
+    if (!developer) return { data: null, error: { message: "حذف العامل متاح للمطوّر النشط فقط" } };
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    if (demoDB.attendance.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.withdrawals.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.deductions.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.settlements.some((row: any) => row.worker_id === worker.id)) {
+      return { data: null, error: { message: "لا يمكن حذف العامل لوجود حضور أو سجلات مالية/تسويات مرتبطة به؛ أوقف العامل بدلًا من حذف سجله" } };
+    }
+    const referenced = demoDB.profiles.some((profile: any) => profile.approved_by === worker.id) ||
+      demoDB.projects.some((row: any) => row.created_by === worker.id || row.archived_by === worker.id) ||
+      demoDB.attendance.some((row: any) => row.created_by === worker.id) ||
+      demoDB.withdrawals.some((row: any) => row.created_by === worker.id || row.decided_by === worker.id) ||
+      demoDB.deductions.some((row: any) => row.created_by === worker.id) ||
+      demoDB.settlements.some((row: any) => row.confirmed_by === worker.id);
+    if (referenced) return { data: null, error: { message: "لا يمكن حذف العامل لوجود سجلات مرتبطة بحسابه؛ أوقفه بدلًا من ذلك" } };
+    demoDB.worker_projects = demoDB.worker_projects.filter((row: any) => row.worker_id !== worker.id);
+    demoDB.site_workers = demoDB.site_workers.filter((row: any) => row.worker_id !== worker.id);
+    demoDB.notifications = demoDB.notifications.filter((row: any) => row.user_id !== worker.id);
+    demoDB.profiles = demoDB.profiles.filter((profile: any) => profile.id !== worker.id);
+    return { data: worker.id_card_url ?? null, error: null };
+  }
+
+  if (fn === "developer_delete_project") {
+    const developer = demoDB.profiles.find((profile: any) =>
+      profile.id === currentUser?.id && profile.role === "developer" &&
+      profile.status === "active" && profile.is_active !== false
+    );
+    if (!developer) return { data: null, error: { message: "حذف المشروع متاح للمطوّر النشط فقط" } };
+    const project = demoDB.projects.find((row: any) => row.id === args.p_project_id);
+    if (!project) return { data: null, error: { message: "المشروع غير موجود" } };
+    const siteIds = new Set(demoDB.sites.filter((site: any) => site.project_id === project.id).map((site: any) => site.id));
+    if (demoDB.attendance.some((row: any) => row.project_id === project.id) ||
+        demoDB.attendance_projects.some((row: any) => row.project_id === project.id) ||
+        (demoDB.attendance_sites ?? []).some((row: any) => siteIds.has(row.site_id)) ||
+        demoDB.withdrawals.some((row: any) => row.project_id === project.id) ||
+        demoDB.deductions.some((row: any) => row.project_id === project.id) ||
+        demoDB.settlements.some((row: any) => row.project_id === project.id)) {
+      return { data: null, error: { message: "لا يمكن حذف المشروع لوجود حضور أو حركات مالية/تسويات مرتبطة به؛ استخدم الأرشفة للحفاظ على السجلات" } };
+    }
+    demoDB.worker_projects = demoDB.worker_projects.filter((row: any) => row.project_id !== project.id);
+    demoDB.site_workers = demoDB.site_workers.filter((row: any) => !siteIds.has(row.site_id));
+    demoDB.sites = demoDB.sites.filter((site: any) => site.project_id !== project.id);
+    demoDB.projects = demoDB.projects.filter((row: any) => row.id !== project.id);
+    return { data: null, error: null };
+  }
+
   if (fn === "register_attendance_multi" || fn === "admin_register_attendance_multi") {
     const isAdmin = fn === "admin_register_attendance_multi";
     const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
@@ -787,6 +841,10 @@ const storageMock = {
     }),
     createSignedUrl: async (_path: string) => ({
       data: { signedUrl: "data:image/svg+xml;base64,PHN2Zy8+" },
+      error: null,
+    }),
+    remove: async (paths: string[]) => ({
+      data: paths.map((name) => ({ name })),
       error: null,
     }),
   }),

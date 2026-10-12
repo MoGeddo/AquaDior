@@ -3,6 +3,7 @@ import { supabase, DEMO_MODE } from "../../lib/supabase";
 import type { Project } from "../../lib/types";
 import { todayStr } from "../../lib/calc";
 import { Modal } from "../../components/Modal";
+import { useAuth } from "../../store/auth";
 
 /** CSV escaping plus formula-injection protection for user-controlled fields. */
 function csvCell(value: unknown): string {
@@ -51,7 +52,11 @@ function downloadCsv(filename: string, data: any) {
 }
 
 export default function Projects() {
+  const { profile } = useAuth();
+  const isDeveloper = profile?.role === "developer";
   const [projects, setProjects] = useState<Project[]>([]);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState("");
   const [confirm, setConfirm] = useState<Project | null>(null);
@@ -83,6 +88,33 @@ export default function Projects() {
     setPw("");
     setPwErr("");
     setBusy(false);
+  }
+
+  async function deleteProject(projectId: string, projectName: string) {
+    if (!isDeveloper || deletingProjectId) return;
+    const confirmed = window.confirm(
+      `حذف المشروع «${projectName}» نهائيًا؟\n\nلن يسمح النظام بالحذف إذا ارتبط المشروع بحضور أو سحوبات أو خصومات أو تسويات. في هذه الحالة استخدم الأرشفة للحفاظ على السجلات.`
+    );
+    if (!confirmed) return;
+
+    setDeleteError("");
+    setMsg("");
+    setDeletingProjectId(projectId);
+    try {
+      const { error } = await supabase.rpc("developer_delete_project", {
+        p_project_id: projectId,
+      });
+      if (error) {
+        setDeleteError(error.message);
+        return;
+      }
+      setMsg(`تم حذف المشروع «${projectName}» نهائيًا.`);
+      await load();
+    } catch (error: any) {
+      setDeleteError(error?.message ?? "تعذّر حذف المشروع");
+    } finally {
+      setDeletingProjectId(null);
+    }
   }
 
   /** أرشفة المشروع — بعد التحقق الحقيقي من كلمة السر */
@@ -158,6 +190,12 @@ export default function Projects() {
       </div>
 
       {msg && <div className="alert success">{msg}</div>}
+      {deleteError && <div className="alert error" role="alert">{deleteError}</div>}
+      {isDeveloper && (
+        <div className="alert info" role="note">
+          الحذف النهائي للمشروع متاح للمطوّر فقط عندما لا توجد سجلات حضور أو حركات مالية؛ المشاريع ذات التاريخ تُؤرشف ولا تُمحى.
+        </div>
+      )}
 
       {/* ===== مشاريع شغّالة ===== */}
       {tab === "active" && (
@@ -200,9 +238,21 @@ export default function Projects() {
                       </button>
                     </td>
                     <td>
-                      <button className="btn btn-sm btn-danger" onClick={() => askClose(p)}>
-                        أرشفة المشروع
-                      </button>
+                      <div className="flex wrap">
+                        <button className="btn btn-sm btn-danger" onClick={() => askClose(p)}>
+                          أرشفة المشروع
+                        </button>
+                        {isDeveloper && (
+                          <button
+                            className="btn btn-sm btn-danger"
+                            onClick={() => void deleteProject(p.id, p.name)}
+                            disabled={Boolean(deletingProjectId)}
+                            aria-label={`حذف المشروع ${p.name} نهائيًا`}
+                          >
+                            {deletingProjectId === p.id ? "جاري الحذف..." : "🗑 حذف نهائي"}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -235,6 +285,7 @@ export default function Projects() {
                   <th>سجلات حضور</th>
                   <th>تفاصيل العاملين والحضور</th>
                   <th>تصدير</th>
+                  {isDeveloper && <th>إدارة</th>}
                 </tr>
               </thead>
               <tbody>
@@ -269,11 +320,23 @@ export default function Projects() {
                         📥 CSV
                       </button>
                     </td>
+                    {isDeveloper && (
+                      <td>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => void deleteProject(a.project_id, a.project_name)}
+                          disabled={Boolean(deletingProjectId)}
+                          aria-label={`حذف المشروع ${a.project_name} نهائيًا`}
+                        >
+                          {deletingProjectId === a.project_id ? "جاري الحذف..." : "🗑 حذف نهائي"}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {archive.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="center muted">
+                    <td colSpan={isDeveloper ? 7 : 6} className="center muted">
                       مفيش مشاريع/مواقع مؤرشفة
                     </td>
                   </tr>

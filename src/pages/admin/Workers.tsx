@@ -9,6 +9,8 @@ export default function Workers() {
   const { profile } = useAuth();
   const canResetPassword = profile?.role === "developer";
   const [workers, setWorkers] = useState<WorkerBalance[]>([]);
+  const [deletingWorkerId, setDeletingWorkerId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<WorkerBalance | null>(null);
@@ -24,6 +26,43 @@ export default function Workers() {
     setLoadError(errors.map((error: any) => error.message).join(" — "));
     if (!wResult.error) setWorkers((wResult.data ?? []) as WorkerBalance[]);
     if (!pResult.error) setProjects((pResult.data ?? []) as Project[]);
+  }
+
+  async function deleteWorker(worker: WorkerBalance) {
+    if (!canResetPassword || deletingWorkerId) return;
+    const confirmed = window.confirm(
+      `حذف العامل «${worker.full_name}» نهائيًا؟\n\nلن يتم الحذف إذا كان له حضور أو سحوبات أو خصومات أو تسويات؛ ستبقى السجلات محفوظة ويمكنك إيقاف العامل بدلًا من ذلك.`
+    );
+    if (!confirmed) return;
+
+    setDeleteError("");
+    setMsg("");
+    setDeletingWorkerId(worker.worker_id);
+    try {
+      const { data: cardPath, error } = await supabase.rpc("developer_delete_worker", {
+        p_worker_id: worker.worker_id,
+      });
+      if (error) {
+        setDeleteError(error.message);
+        return;
+      }
+
+      let successMessage = `تم حذف العامل «${worker.full_name}» نهائيًا.`;
+      if (typeof cardPath === "string" && cardPath) {
+        const { error: storageError } = await supabase.storage
+          .from("id-cards")
+          .remove([cardPath]);
+        if (storageError) {
+          successMessage += " تعذّر حذف صورة البطاقة من التخزين؛ راجع ملفات id-cards في Supabase.";
+        }
+      }
+      setMsg(successMessage);
+      await load();
+    } catch (error: any) {
+      setDeleteError(error?.message ?? "تعذّر حذف العامل");
+    } finally {
+      setDeletingWorkerId(null);
+    }
   }
 
   useEffect(() => {
@@ -48,7 +87,13 @@ export default function Workers() {
       </div>
 
       {msg && <div className="alert success">{msg}</div>}
+      {deleteError && <div className="alert error" role="alert">{deleteError}</div>}
       {loadError && <div className="alert error" role="alert">تعذر تحميل بعض البيانات: {loadError}</div>}
+      {canResetPassword && (
+        <div className="alert info" role="note">
+          الحذف النهائي للعامل متاح للمطوّر فقط إذا لم توجد له سجلات حضور أو مالية؛ عند وجودها استخدم إيقاف العامل للحفاظ على التاريخ.
+        </div>
+      )}
 
       <div className="card">
         <div className="table-wrap">
@@ -85,9 +130,21 @@ export default function Workers() {
                     <b>{money(w.balance)}</b>
                   </td>
                   <td>
-                    <button className="btn btn-sm" onClick={() => setEditing(w)}>
-                      تفاصيل
-                    </button>
+                    <div className="flex wrap">
+                      <button className="btn btn-sm" onClick={() => setEditing(w)}>
+                        تفاصيل
+                      </button>
+                      {canResetPassword && (
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => void deleteWorker(w)}
+                          disabled={Boolean(deletingWorkerId)}
+                          aria-label={`حذف العامل ${w.full_name}`}
+                        >
+                          {deletingWorkerId === w.worker_id ? "جاري الحذف..." : "🗑 حذف"}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

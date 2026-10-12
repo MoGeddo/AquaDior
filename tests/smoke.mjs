@@ -219,6 +219,50 @@ setPath("/admin/sites");
 await waitFor(() => window.location.pathname === "/admin/projects", { label: "تحويل رابط المواقع القديم" });
 check("رابط المواقع القديم يوجّه إلى المشاريع/المواقع", true);
 
+// ---- 3b) أدوات الحذف تظهر للمطوّر فقط ----
+setPath("/admin/workers");
+await waitFor(
+  () => window.location.pathname === "/admin/workers" && $$("input").some((input) => input.placeholder.includes("ابحث بالاسم أو الموبايل")),
+  { label: "قائمة العمال للمالك" }
+);
+check("زر حذف العامل مخفي عن المالك", !buttonByText(/🗑 حذف/));
+setPath("/admin/projects");
+await waitFor(() => window.location.pathname === "/admin/projects" && /إزاي الأرشفة بتشتغل/.test(text()), { label: "قائمة المشاريع للمالك" });
+check("الحذف النهائي للمشروع مخفي عن المالك", !buttonByText(/حذف نهائي/));
+
+const ownerOutBtn = buttonByText(/^خروج$/);
+if (ownerOutBtn) {
+  click(ownerOutBtn);
+  await waitFor(() => window.location.pathname === "/login", { timeout: 8000, label: "خروج المالك" });
+}
+await login("mostafageddo", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "الدخول كمطوّر", timeout: 12000 });
+setPath("/admin/workers");
+await waitFor(
+  () => window.location.pathname === "/admin/workers" && /الحذف النهائي للعامل متاح/.test(text()),
+  { label: "قائمة العمال للمطوّر" }
+);
+check("زر حذف العامل ظاهر للمطوّر", !!buttonByText(/🗑 حذف/));
+const registrationWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار التسجيل"));
+const registrationDeleteButton = [...(registrationWorkerRow?.querySelectorAll("button") ?? [])]
+  .find((button) => /🗑 حذف/.test(button.textContent || ""));
+if (registrationDeleteButton) {
+  click(registrationDeleteButton);
+  await waitFor(
+    () => !$$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار التسجيل")),
+    { label: "حذف عامل بلا سجلات من شاشة المطوّر" }
+  );
+  check("المطوّر يحذف عاملًا بلا سجل من داخل التطبيق", true);
+} else {
+  check("المطوّر يحذف عاملًا بلا سجل من داخل التطبيق", false, "لم يظهر زر الحذف في صف عامل التسجيل");
+}
+setPath("/admin/projects");
+await waitFor(
+  () => window.location.pathname === "/admin/projects" && /الحذف النهائي للمشروع متاح/.test(text()),
+  { label: "قائمة المشاريع للمطوّر" }
+);
+check("الحذف النهائي للمشروع ظاهر للمطوّر", !!buttonByText(/حذف نهائي/));
+
 // ---- 4) خروج ودخول عامل ----
 console.log("\n--- 👷 شاشات العامل ---");
 const outBtn = buttonByText(/^خروج$/);
@@ -337,6 +381,45 @@ if (moneyBtn2) {
 setPath("/worker/statement");
 await sleep(900);
 check("📄 كشف الحساب بيفتح", text().length > 150 && errors.length === 0, `${text().length} حرف`);
+
+// ---- 9) الحماية: لا يُحذف عامل أو مشروع لهما تاريخ ----
+const workerOutBtn = buttonByText(/^خروج$/);
+if (workerOutBtn) {
+  click(workerOutBtn);
+  await waitFor(() => window.location.pathname === "/login", { timeout: 8000, label: "خروج العامل بعد الاختبار" });
+}
+await login("mostafageddo", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "العودة للمطوّر", timeout: 12000 });
+setPath("/admin/workers");
+await waitFor(
+  () => window.location.pathname === "/admin/workers" && /الحذف النهائي للعامل متاح/.test(text()),
+  { label: "قائمة العمال لاختبار حماية التاريخ" }
+);
+const attendedWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const attendedWorkerDeleteButton = [...(attendedWorkerRow?.querySelectorAll("button") ?? [])]
+  .find((button) => /🗑 حذف/.test(button.textContent || ""));
+if (attendedWorkerDeleteButton) {
+  click(attendedWorkerDeleteButton);
+  await waitFor(() => /لا يمكن حذف العامل/.test(text()), { label: "منع حذف عامل له تاريخ" });
+  check("الحذف يرفض عاملًا لديه حضور/مال ويحفظه", !!attendedWorkerRow?.textContent?.includes("عامل اختبار آلي"));
+} else {
+  check("الحذف يرفض عاملًا لديه حضور/مال ويحفظه", false, "لم يظهر صف العامل للاختبار");
+}
+setPath("/admin/projects");
+await waitFor(
+  () => window.location.pathname === "/admin/projects" && /الحذف النهائي للمشروع متاح/.test(text()),
+  { label: "قائمة المشاريع لاختبار حماية التاريخ" }
+);
+const attendedProjectRow = $$("tbody tr").find((row) => row.textContent?.includes("مشروع اختبار آلي"));
+const attendedProjectDeleteButton = [...(attendedProjectRow?.querySelectorAll("button") ?? [])]
+  .find((button) => /حذف نهائي/.test(button.textContent || ""));
+if (attendedProjectDeleteButton) {
+  click(attendedProjectDeleteButton);
+  await waitFor(() => /لا يمكن حذف المشروع/.test(text()), { label: "منع حذف مشروع له تاريخ" });
+  check("الحذف يرفض مشروعًا مرتبطًا بحضور ويحفظه", !!attendedProjectRow?.textContent?.includes("مشروع اختبار آلي"));
+} else {
+  check("الحذف يرفض مشروعًا مرتبطًا بحضور ويحفظه", false, "لم يظهر صف المشروع للاختبار");
+}
 
 // ============================================================
 console.log("\n" + "=".repeat(64));
