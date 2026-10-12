@@ -112,11 +112,12 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
    ============================================================ */
 .auth {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--sp-5) var(--sp-4);
+  padding: max(var(--sp-5), env(safe-area-inset-top)) var(--sp-4) max(var(--sp-5), env(safe-area-inset-bottom));
   position: relative;
   overflow: hidden;
 }
@@ -272,7 +273,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; color: inherit;
   background: linear-gradient(180deg, #18191c 0%, #101114 100%);
   backdrop-filter: blur(10px);
   border-bottom: 2px solid var(--gold-500);
-  padding: var(--sp-3) var(--sp-4);
+  padding: calc(var(--sp-3) + env(safe-area-inset-top)) var(--sp-4) var(--sp-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -554,7 +555,7 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   color: var(--gold-400);
 }
 .bottom-nav .ico { font-size: 21px; line-height: 1; }
-.has-bottom-nav { padding-bottom: 84px; }
+.has-bottom-nav { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 
 /* ============================================================
    تنقل الإدارة — تدرج داكن فخم
@@ -566,8 +567,8 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   gap: 2px;
   overflow-x: auto;
   padding: 6px 10px;
-  position: sticky;
-  top: 57px;
+  position: relative;
+  top: auto;
   z-index: 15;
   scrollbar-width: none;
 }
@@ -672,4 +673,243 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   .topbar, .bottom-nav, .admin-nav, .btn { display: none !important; }
   .card { border: none; box-shadow: none; }
   body { background: #fff; }
+}
+
+/* نماذج المصادقة قابلة للتمرير ولا تدخل أسفل شريط الحالة أو لوحة المفاتيح. */
+.auth-register {
+  min-height: 100vh;
+  min-height: 100dvh;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+
+/* صفحة دخول مرنة — لا تستخدم رأسًا ثابتًا يضغط المحتوى خارج ارتفاع الهاتف. */
+.auth-login {
+  min-height: 100vh;
+  min-height: 100dvh;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+}
+.auth-login .auth-bg { position: fixed; }
+.auth-login .auth-card { margin: auto; }
+.remember-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-md);
+  background: #fbfcfd;
+  cursor: pointer;
+}
+.remember-row input {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--gold-700);
+}
+.remember-copy { display: grid; gap: 2px; min-width: 0; }
+.remember-copy strong { color: var(--ink-800); font-size: 13px; }
+.remember-copy small { color: var(--ink-500); font-size: 11px; line-height: 1.5; }
+
+/* ============================================================
+   Aqua Dior — افتتاحية سوداء وذهبية، بسيطة ومتتابعة
+   ============================================================ */
+.brand-splash {
+  --splash-gold: #d7b66c;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(22px, env(safe-area-inset-top)) 18px max(22px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  isolation: isolate;
+  color: #fff;
+  background:
+    radial-gradient(ellipse 390px 310px at 50% 42%, rgba(215, 182, 108, 0.095), transparent 72%),
+    linear-gradient(180deg, #08090b 0%, #111216 56%, #08090b 100%);
+}
+.brand-splash::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, transparent 28%, rgba(0, 0, 0, 0.5) 100%);
+  content: "";
+  pointer-events: none;
+}
+.brand-splash__aura {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(88vw, 460px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(215, 182, 108, 0.045);
+  border-radius: 50%;
+  box-shadow: 0 0 90px rgba(215, 182, 108, 0.045), inset 0 0 90px rgba(215, 182, 108, 0.025);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.brand-splash__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100%, 360px);
+  text-align: center;
+  transform: translateY(-1vh);
+}
+.brand-splash__emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(148px, 40vw, 172px);
+  aspect-ratio: 1;
+  margin-bottom: clamp(13px, 3.5vh, 24px);
+}
+.brand-splash__ring {
+  position: absolute;
+  inset: 5%;
+  border: 1px solid rgba(215, 182, 108, 0.24);
+  border-radius: 50%;
+  box-shadow: inset 0 0 42px rgba(215, 182, 108, 0.045), 0 0 34px rgba(215, 182, 108, 0.06);
+  opacity: 0;
+  animation: splash-ring-in 0.9s ease-out 0.08s both;
+}
+.brand-splash__ring::before {
+  position: absolute;
+  inset: 8%;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 50%;
+  content: "";
+}
+.brand-splash__spark {
+  position: absolute;
+  z-index: 3;
+  top: 15%;
+  right: 21%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f2d996;
+  box-shadow: 0 0 16px 4px rgba(231, 199, 124, 0.28);
+  opacity: 0;
+  animation: splash-spark-in 0.45s ease-out 0.78s both;
+}
+.brand-splash__shield {
+  position: relative;
+  z-index: 2;
+  overflow: visible !important;
+  filter: drop-shadow(0 9px 22px rgba(215, 182, 108, 0.21));
+  opacity: 0;
+  animation: splash-mark-in 0.9s cubic-bezier(0.2, 0.78, 0.24, 1) 0.12s both;
+}
+.brand-splash__wordmark {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+}
+.brand-splash__name {
+  color: #fff;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: clamp(21px, 6vw, 29px);
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-shadow: 0 2px 24px rgba(215, 182, 108, 0.15);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(12px);
+  animation: splash-name-in 0.72s cubic-bezier(0.22, 1, 0.36, 1) 1.05s both;
+}
+.brand-splash__english {
+  color: rgba(231, 207, 153, 0.86);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  opacity: 0;
+  transform: translateY(7px);
+  animation: splash-name-in 0.6s ease-out 1.28s both;
+}
+.brand-splash__loading {
+  position: relative;
+  width: 46px;
+  height: 2px;
+  margin-top: clamp(28px, 6vh, 40px);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(215, 182, 108, 0.18);
+  opacity: 0;
+  animation: splash-loader-in 0.35s ease-out 1.32s both;
+}
+.brand-splash__loading span {
+  position: absolute;
+  inset-block: 0;
+  left: -45%;
+  width: 38%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #f1d58f, transparent);
+  box-shadow: 0 0 12px rgba(215, 182, 108, 0.65);
+  animation: splash-loader-pass 1.1s ease-in-out 1.32s infinite;
+}
+.brand-splash.is-leaving {
+  pointer-events: none;
+  animation: brand-splash-out 0.48s ease-in forwards;
+}
+
+@keyframes splash-ring-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes splash-mark-in {
+  0% { opacity: 0; transform: translateY(10px) scale(0.82); filter: blur(7px); }
+  72% { opacity: 1; transform: translateY(-2px) scale(1.035); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes splash-spark-in {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes splash-name-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes splash-loader-in { to { opacity: 1; } }
+@keyframes splash-loader-pass { to { transform: translateX(360%); } }
+@keyframes brand-splash-out { to { opacity: 0; visibility: hidden; } }
+
+@media (max-width: 480px) {
+  .auth-login {
+    justify-content: flex-start;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: max(18px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .auth-login .auth-card { margin: auto; padding: 22px 18px; }
+  .auth-login .auth-brand { margin-bottom: 18px; }
+  .remember-row { align-items: flex-start; }
+  .topbar { gap: 8px; padding: 8px 10px; }
+  .topbar h1 { font-size: 14px; }
+  .topbar .sub { max-width: 43vw; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .role-chip { padding: 3px 7px; font-size: 10px; }
+  .admin-nav { gap: 3px; padding-inline: 7px; }
+  .admin-nav a { padding: 7px 10px; font-size: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-splash *, .brand-splash::before, .brand-splash::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

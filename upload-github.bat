@@ -1,48 +1,56 @@
 @echo off
 chcp 65001 > nul
+setlocal
+
 echo ============================================
-echo    رفع المشروع على GitHub - بأمر واحد
+echo   رفع الفرع الحالي بأمان إلى origin
 echo ============================================
 echo.
 
-REM 1) نتأكد إن git متثبت
 where git > nul 2>&1
 if errorlevel 1 (
-    echo [X] git مش متثبت على جهازك.
-    echo     نزّله من: https://git-scm.com/download/win
-    echo     وبعدين شغّل الملف ده تاني.
+    echo [X] git غير مثبت. نزّله من https://git-scm.com/download/win
     pause
     exit /b 1
 )
 
-echo [1/5] بيجهّز git...
-git init
-git config core.autocrlf false
+git rev-parse --is-inside-work-tree > nul 2>&1
+if errorlevel 1 (
+    echo [X] هذا المجلد ليس مستودع Git. لا ينشئ هذا السكربت مستودعًا جديدًا.
+    pause
+    exit /b 1
+)
 
-echo [2/5] بيختار الفرع الرئيسي...
-git branch -M main
+for /f "delims=" %%B in ('git branch --show-current') do set "CURRENT_BRANCH=%%B"
+if not defined CURRENT_BRANCH (
+    echo [X] لا يوجد فرع حالي؛ لن يتم اختيار فرع تلقائيًا.
+    pause
+    exit /b 1
+)
 
-echo [3/5] بيضيف كل الملفات...
-git add .
-git status
+git remote | findstr /x /c:"origin" > nul
+if errorlevel 1 (
+    echo [X] لا يوجد remote باسم origin. أعدّ remote يدويًا بعد التحقق من عنوانه.
+    pause
+    exit /b 1
+)
 
-echo [4/5] بيعمل commit...
-git commit -m "first commit - worker app"
-
+echo الفرع الحالي: %CURRENT_BRANCH%
+echo الملفات غير المحفوظة (لن تُضاف أو تُعمل لها commit تلقائيًا):
+git status --short
 echo.
-echo ============================================
-echo    خطوة أخيرة — قولّي اليوزر بتاعك
-echo ============================================
-echo.
-set /p GHUSER="اكتب اسم المستخدم بتاعك على GitHub: "
+echo هذا السكربت لا يغيّر الفرع أو remote، ولا يضيف ملفات ولا ينشئ commit.
+echo سينفّذ فقط: git push -u origin HEAD
+choice /c YN /m "هل تريد رفع commits الفرع الحالي الآن؟"
+if errorlevel 2 exit /b 0
 
-echo [5/5] بيربط المستودع...
-git remote remove origin 2> nul
-git remote add origin https://github.com/%GHUSER%/worker-app.git
-git push -u origin main
+git push -u origin HEAD
+if errorlevel 1 (
+    echo [X] فشل الرفع. راجع رسالة git أعلاه.
+    pause
+    exit /b 1
+)
 
-echo.
-echo ============================================
-echo   خلص! لو فيه مشكلة، ابعتلي رسالة الخطأ
-echo ============================================
+echo [OK] تم رفع الفرع الحالي.
 pause
+endlocal

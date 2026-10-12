@@ -1,0 +1,4 @@
+# Authentication is checked inside notify-telegram for both admin JWTs and the
+# dedicated TELEGRAM_CRON_SECRET header used by scheduled requests.
+[functions.notify-telegram]
+verify_jwt = false

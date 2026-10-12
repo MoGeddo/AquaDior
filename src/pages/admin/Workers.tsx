@@ -1,27 +1,29 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { money } from "../../lib/calc";
-import type { Site, Project, WorkerBalance } from "../../lib/types";
+import type { Project, WorkerBalance } from "../../lib/types";
 import { Modal } from "../../components/Modal";
+import { useAuth } from "../../store/auth";
 
 export default function Workers() {
+  const { profile } = useAuth();
+  const canResetPassword = profile?.role === "developer";
   const [workers, setWorkers] = useState<WorkerBalance[]>([]);
-  const [sites, setSites] = useState<Site[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<WorkerBalance | null>(null);
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState("");
-
+  const [loadError, setLoadError] = useState("");
   async function load() {
-    const [{ data: w }, { data: s }, { data: p }] = await Promise.all([
+    const [wResult, pResult] = await Promise.all([
       supabase.from("worker_balances").select("*").order("full_name"),
-      supabase.from("sites").select("*").eq("is_active", true).order("name"),
       supabase.from("projects").select("*").eq("status", "active").order("name"),
     ]);
-    setWorkers((w ?? []) as WorkerBalance[]);
-    setSites((s ?? []) as Site[]);
-    setProjects((p ?? []) as Project[]);
+    const errors = [wResult.error, pResult.error].filter(Boolean);
+    setLoadError(errors.map((error: any) => error.message).join(" — "));
+    if (!wResult.error) setWorkers((wResult.data ?? []) as WorkerBalance[]);
+    if (!pResult.error) setProjects((pResult.data ?? []) as Project[]);
   }
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export default function Workers() {
       </div>
 
       {msg && <div className="alert success">{msg}</div>}
+      {loadError && <div className="alert error" role="alert">تعذر تحميل بعض البيانات: {loadError}</div>}
 
       <div className="card">
         <div className="table-wrap">
@@ -102,7 +105,6 @@ export default function Workers() {
 
       {adding && (
         <AddWorker
-          sites={sites}
           projects={projects}
           onClose={() => setAdding(false)}
           onDone={async () => {
@@ -116,7 +118,8 @@ export default function Workers() {
       {editing && (
         <EditWorker
           worker={editing}
-          sites={sites}
+          canResetPassword={canResetPassword}
+          projects={projects}
           onClose={() => setEditing(null)}
           onDone={async () => {
             setEditing(null);
@@ -130,12 +133,10 @@ export default function Workers() {
 
 /* ============ إضافة عامل ============ */
 function AddWorker({
-  sites,
   projects,
   onClose,
   onDone,
 }: {
-  sites: Site[];
   projects: Project[];
   onClose: () => void;
   onDone: () => void;
@@ -146,7 +147,6 @@ function AddWorker({
     password: "",
     daily_wage: "",
   });
-  const [siteIds, setSiteIds] = useState<string[]>([]);
   const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -155,7 +155,7 @@ function AddWorker({
     setErr("");
     if (!f.full_name.trim()) return setErr("اكتب الاسم");
     if (f.phone.replace(/\D/g, "").length < 10) return setErr("اكتب رقم موبايل صحيح");
-    if (f.password.length < 4) return setErr("كلمة السر 4 حروف على الأقل");
+    if (f.password.length < 8) return setErr("كلمة السر 8 أحرف على الأقل");
 
     setBusy(true);
     const { error } = await supabase.rpc("create_worker", {
@@ -163,7 +163,6 @@ function AddWorker({
       p_phone: f.phone.trim(),
       p_password: f.password,
       p_daily_wage: Number(f.daily_wage || 0),
-      p_site_ids: siteIds.length ? siteIds : null,
       p_project_id: projectId || null,
     });
     setBusy(false);
@@ -192,9 +191,11 @@ function AddWorker({
         />
       </label>
       <label className="field">
-        <span>كلمة السر</span>
+        <span>كلمة السر (8 أحرف على الأقل)</span>
         <input
           className="input"
+          type="password"
+          autoComplete="new-password"
           value={f.password}
           onChange={(e) => setF({ ...f, password: e.target.value })}
         />
@@ -209,7 +210,7 @@ function AddWorker({
         />
       </label>
       <label className="field">
-        <span>المشروع</span>
+        <span>المشروع/الموقع الأول (اختياري)</span>
         <select
           className="input"
           value={projectId}
@@ -223,29 +224,6 @@ function AddWorker({
           ))}
         </select>
       </label>
-      <div className="field">
-        <span>المواقع</span>
-        <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
-          {sites.map((s) => {
-            const on = siteIds.includes(s.id);
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`btn btn-sm ${on ? "btn-primary" : ""}`}
-                onClick={() =>
-                  setSiteIds((p) =>
-                    on ? p.filter((x) => x !== s.id) : [...p, s.id]
-                  )
-                }
-              >
-                {on ? "✓ " : ""}
-                {s.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? "جاري الحفظ..." : "حفظ"}
       </button>
@@ -256,12 +234,14 @@ function AddWorker({
 /* ============ تعديل عامل ============ */
 function EditWorker({
   worker,
-  sites,
+  canResetPassword,
+  projects,
   onClose,
   onDone,
 }: {
   worker: WorkerBalance;
-  sites: Site[];
+  canResetPassword: boolean;
+  projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -270,7 +250,9 @@ function EditWorker({
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [wage, setWage] = useState(String(worker.daily_wage));
   const [active, setActive] = useState(worker.is_active);
-  const [siteIds, setSiteIds] = useState<string[]>([]);
+  const [assignedProjectIds, setAssignedProjectIds] = useState<string[]>([]);
+  const [assignmentsLoaded, setAssignmentsLoaded] = useState(false);
+  const [assignmentLoadError, setAssignmentLoadError] = useState("");
   const [dAmount, setDAmount] = useState("");
   const [dReason, setDReason] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -279,39 +261,51 @@ function EditWorker({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setAssignmentsLoaded(false);
+    setAssignmentLoadError("");
     (async () => {
-      const { data } = await supabase
-        .from("site_workers")
-        .select("site_id")
+      const assignmentResult = await supabase
+        .from("worker_projects")
+        .select("project_id, project:projects(status)")
         .eq("worker_id", worker.worker_id);
-      setSiteIds((data ?? []).map((r: any) => r.site_id));
-    })();
+      if (cancelled) return;
+      if (assignmentResult.error) {
+        setAssignmentLoadError("تعذر تحميل مشاريع العامل؛ أعد تحميل الصفحة قبل تعديل البيانات.");
+        return;
+      }
+      const activeProjectIds = (assignmentResult.data ?? [])
+        .filter((row: any) => row.project?.status === "active")
+        .map((row: any) => row.project_id);
+      setAssignedProjectIds(activeProjectIds);
+      setAssignmentsLoaded(true);
+    })().catch((error: any) => {
+      if (!cancelled) setAssignmentLoadError(error?.message ?? "تعذر تحميل تعيينات العامل");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [worker.worker_id]);
 
   async function saveInfo() {
     setErr("");
-    setBusy(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        full_name: fullName.trim(),
-        phone: phone.trim(),
-        daily_wage: Number(wage || 0),
-        is_active: active,
-      })
-      .eq("id", worker.worker_id);
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    const dailyWage = Number(wage);
+    if (fullName.trim().length < 3) return setErr("اكتب الاسم بالكامل");
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) return setErr("رقم الموبايل غير صحيح");
+    if (!Number.isFinite(dailyWage) || dailyWage < 0) return setErr("اليومية غير صحيحة");
 
-    if (!error) {
-      await supabase
-        .from("site_workers")
-        .delete()
-        .eq("worker_id", worker.worker_id);
-      if (siteIds.length) {
-        await supabase
-          .from("site_workers")
-          .insert(siteIds.map((s) => ({ site_id: s, worker_id: worker.worker_id })));
-      }
-    }
+    if (!assignmentsLoaded || assignmentLoadError) return setErr("تعذر تحميل المشاريع؛ أعد المحاولة قبل الحفظ");
+
+    setBusy(true);
+    const { error } = await supabase.rpc("save_worker_admin_details", {
+      p_worker_id: worker.worker_id,
+      p_full_name: fullName.trim(),
+      p_phone: cleanPhone,
+      p_daily_wage: dailyWage,
+      p_is_active: active,
+      p_project_ids: assignedProjectIds,
+    });
     setBusy(false);
     if (error) return setErr(error.message);
     setOk("تم الحفظ ✅");
@@ -321,14 +315,14 @@ function EditWorker({
   async function addDeduction() {
     setErr("");
     const v = Number(dAmount);
-    if (!v || v <= 0) return setErr("اكتب مبلغ صحيح");
-    if (!dReason.trim()) return setErr("اكتب السبب");
+    if (!Number.isFinite(v) || v <= 0) return setErr("اكتب مبلغ صحيح");
+    if (!dReason.trim() || dReason.trim().length > 500) return setErr("اكتب سببًا من 1 إلى 500 حرف");
     setBusy(true);
-    const { error } = await supabase.from("deductions").insert({
-      worker_id: worker.worker_id,
-      amount: v,
-      reason: dReason.trim(),
-      created_by: (await supabase.auth.getUser()).data.user?.id,
+    const { error } = await supabase.rpc("add_worker_deduction", {
+      p_worker_id: worker.worker_id,
+      p_project_id: null,
+      p_amount: v,
+      p_reason: dReason.trim(),
     });
     setBusy(false);
     if (error) return setErr(error.message);
@@ -340,7 +334,8 @@ function EditWorker({
 
   async function resetPass() {
     setErr("");
-    if (newPass.length < 4) return setErr("كلمة السر 4 حروف على الأقل");
+    if (!canResetPassword) return setErr("تغيير كلمات السر متاح للمطوّر النشط فقط");
+    if (newPass.length < 8 || newPass.length > 128) return setErr("كلمة السر يجب أن تكون بين 8 و128 حرفًا");
     setBusy(true);
     const { error } = await supabase.rpc("reset_worker_password", {
       p_worker_id: worker.worker_id,
@@ -367,15 +362,18 @@ function EditWorker({
         >
           خصم
         </button>
-        <button
-          className={`btn btn-sm ${tab === "password" ? "btn-primary" : ""}`}
-          onClick={() => setTab("password")}
-        >
-          كلمة السر
-        </button>
+        {canResetPassword && (
+          <button
+            className={`btn btn-sm ${tab === "password" ? "btn-primary" : ""}`}
+            onClick={() => setTab("password")}
+          >
+            كلمة السر
+          </button>
+        )}
       </div>
 
       {err && <div className="alert error">{err}</div>}
+      {assignmentLoadError && <div className="alert error" role="alert">{assignmentLoadError}</div>}
       {ok && <div className="alert success">{ok}</div>}
 
       {tab === "info" && (
@@ -418,29 +416,34 @@ function EditWorker({
             </select>
           </label>
           <div className="field">
-            <span>المواقع</span>
-            <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
-              {sites.map((s) => {
-                const on = siteIds.includes(s.id);
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`btn btn-sm ${on ? "btn-primary" : ""}`}
-                    onClick={() =>
-                      setSiteIds((p) =>
-                        on ? p.filter((x) => x !== s.id) : [...p, s.id]
-                      )
-                    }
-                  >
-                    {on ? "✓ " : ""}
-                    {s.name}
-                  </button>
-                );
-              })}
-            </div>
+            <span>المشاريع/المواقع المعيّنة</span>
+            {!assignmentsLoaded ? (
+              <div className="small muted">جاري تحميل المشاريع...</div>
+            ) : projects.length === 0 ? (
+              <div className="small muted">لا توجد مشاريع نشطة متاحة للتعيين.</div>
+            ) : (
+              <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
+                {projects.map((project) => {
+                  const selected = assignedProjectIds.includes(project.id);
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className={`btn btn-sm ${selected ? "btn-primary" : ""}`}
+                      disabled={busy || Boolean(assignmentLoadError)}
+                      onClick={() => setAssignedProjectIds((current) => selected
+                        ? current.filter((id) => id !== project.id)
+                        : [...current, project.id])}
+                    >
+                      {selected ? "✓ " : ""}{project.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="small muted">تغيير التعيين لا يغيّر الحضور السابق أو الرصيد العام.</div>
           </div>
-          <button className="btn btn-primary btn-block" onClick={saveInfo} disabled={busy}>
+          <button className="btn btn-primary btn-block" onClick={saveInfo} disabled={busy || !assignmentsLoaded || Boolean(assignmentLoadError)}>
             حفظ
           </button>
         </>
@@ -449,7 +452,7 @@ function EditWorker({
       {tab === "deduct" && (
         <>
           <div className="alert info">
-            الخصم هيتحسب من استحقاق العامل في التسوية النهائية
+            الخصم يُسجّل على حساب العامل العام ولا يتكرر على المشاريع.
           </div>
           <label className="field">
             <span>المبلغ</span>
@@ -493,12 +496,14 @@ function EditWorker({
         </>
       )}
 
-      {tab === "password" && (
+      {tab === "password" && canResetPassword && (
         <>
           <label className="field">
-            <span>كلمة السر الجديدة</span>
+            <span>كلمة السر الجديدة (8 أحرف على الأقل)</span>
             <input
               className="input"
+              type="password"
+              autoComplete="new-password"
               value={newPass}
               onChange={(e) => setNewPass(e.target.value)}
             />

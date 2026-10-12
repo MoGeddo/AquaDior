@@ -9,8 +9,7 @@ const LINKS = [
   { to: "/admin/registrations", label: "🔔 طلبات التسجيل" },
   { to: "/admin/attendance", label: "📅 الحضور" },
   { to: "/admin/workers", label: "👷 العمال" },
-  { to: "/admin/sites", label: "📍 المواقع" },
-  { to: "/admin/projects", label: "🏗️ المشاريع" },
+  { to: "/admin/projects", label: "🏗️ المشاريع/المواقع" },
   { to: "/admin/withdrawals", label: "💵 الفلوس" },
   { to: "/admin/settlements", label: "🧾 التسويات" },
   { to: "/admin/audit", label: "🛡️ سجل التعديلات" },
@@ -82,7 +81,7 @@ export default function AdminLayout() {
       </div>
 
       <nav className="admin-nav">
-        {LINKS.map((l) => (
+        {LINKS.filter((l) => l.to !== "/admin/developer" || profile?.role === "developer").map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end}>
             {l.label}
             {l.to === "/admin/registrations" && pending > 0 && (

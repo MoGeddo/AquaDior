@@ -9,7 +9,6 @@ export interface Profile {
   username: string | null;
   role: Role;
   daily_wage: number;
-  default_site_id: string | null;
   is_active: boolean;
   // حقول التسجيل الأولى
   status: ProfileStatus;
@@ -27,17 +26,10 @@ export interface Project {
   status: "active" | "closed";
   start_date: string | null;
   end_date: string | null;
-  created_at: string;
-}
-
-export interface Site {
-  id: string;
-  project_id: string;
-  name: string;
   address: string | null;
   lat: number | null;
   lng: number | null;
-  is_active: boolean;
+  created_at: string;
 }
 
 export interface Attendance {
@@ -45,6 +37,7 @@ export interface Attendance {
   worker_id: string;
   project_id: string | null;
   work_date: string;
+  daily_wage_snapshot: number | null;
   source: "worker" | "admin";
   lat: number | null;
   lng: number | null;
@@ -53,10 +46,10 @@ export interface Attendance {
   created_at: string;
 }
 
-export interface AttendanceSite {
-  id: string;
+export interface AttendanceProject {
   attendance_id: string;
-  site_id: string;
+  project_id: string;
+  project?: Pick<Project, "id" | "name" | "status">;
 }
 
 export type WithdrawalStatus = "pending" | "approved" | "rejected";

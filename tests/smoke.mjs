@@ -32,6 +32,12 @@ const { window } = dom;
 // ---- polyfills اللي jsdom ناقصها ----
 window.matchMedia = window.matchMedia || ((q) => ({ matches: false, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false }));
 window.scrollTo = () => {};
+Object.defineProperty(window.navigator, "geolocation", {
+  configurable: true,
+  value: {
+    getCurrentPosition: (success) => success({ coords: { latitude: 30.0444, longitude: 31.2357 } }),
+  },
+});
 window.alert = () => {};
 window.confirm = () => true;
 window.URL.createObjectURL = () => "blob:fake";
@@ -96,8 +102,11 @@ function findAmountInput() {
   );
 }
 async function login(username, password) {
-  await waitFor(() => window.location.pathname === "/login", { label: "شاشة الدخول" });
-  await sleep(200);
+  await waitFor(
+    () => window.location.pathname === "/login" && $$("input").length >= 2,
+    { label: "شاشة الدخول وعناصر النموذج" }
+  );
+  await sleep(100);
   const ins = $$("input");
   if (ins.length < 2) throw new Error("مفيش خانات دخول");
   setValue(ins[0], username);
@@ -120,15 +129,60 @@ script.remove();
 await waitFor(() => text().trim().length > 0, { label: "التطبيق يفتح", timeout: 15000 });
 check("التطبيق بيقلع ويرسم الشاشة", true, `${text().trim().length} حرف`);
 
-await waitFor(() => window.location.pathname === "/login" || /كلمة السر/.test(text()), { label: "شاشة الدخول" });
+await waitFor(
+  () => window.location.pathname === "/login" && $$("input").length >= 2 && /كلمة السر/.test(text()),
+  { label: "شاشة الدخول وعناصر النموذج" }
+);
 check("بيوجّه على شاشة الدخول", /كلمة السر/.test(text()));
 check("فيه خانات اسم مستخدم وكلمة سر", $$("input").length >= 2, `${$$("input").length} خانة`);
 check("فيه زرار تسجيل حساب جديد", /سجّل|تسجيل/.test(text()));
+check("خيار البقاء مسجّلًا متاح", !!$('input[type="checkbox"]'));
+check("اختبار اتصال قاعدة البيانات أُزيل من صفحة الدخول", !/اختبر الاتصال بالداتابيز/.test(text()));
+
+// ---- 1b) تجربة التسجيل المحلي الوهمي ----
+click(buttonByText(/سجّل حساب جديد/));
+await waitFor(() => window.location.pathname === "/register" && $$("input").length >= 6, {
+  label: "نموذج التسجيل",
+});
+check("نموذج التسجيل يفتح ويعرض الحقول المطلوبة", /تسجيل حساب جديد/.test(text()) && $$("input").length >= 6);
+const registrationPasswords = $$('input[type="password"]');
+check(
+  "نموذج التسجيل يحدّ كلمة السر إلى 128 حرفًا",
+  registrationPasswords.length === 2 && registrationPasswords.every((input) => input.maxLength === 128)
+);
+click(buttonByText(/^سجّل$/));
+await waitFor(() => /رقم موبايل/.test(text()), { label: "التحقق من رقم الهاتف" });
+check("يرفض التسجيل قبل إدخال رقم هاتف", /رقم موبايل/.test(text()));
+
+const registrationInputs = $$("input");
+setValue(registrationInputs[0], "01234567890");
+setValue(registrationInputs[1], "عامل اختبار التسجيل");
+setValue(registrationInputs[3], "smoke.worker");
+setValue(registrationInputs[4], "smoke-password-2026");
+setValue(registrationInputs[5], "smoke-password-2026");
+const cardFile = new window.File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "card.jpg", {
+  type: "image/jpeg",
+});
+Object.defineProperty(registrationInputs[2], "files", { configurable: true, value: [cardFile] });
+registrationInputs[2].dispatchEvent(new window.Event("change", { bubbles: true }));
+await waitFor(() => /تم اختيار الصورة/.test(text()), { label: "اختيار صورة البطاقة" });
+click(buttonByText(/^سجّل$/));
+await waitFor(() => /حسابك مستني تفعيل المالك/.test(text()), { label: "إنشاء حساب تجريبي معلق", timeout: 12000 });
+check("التسجيل التجريبي ينشئ حسابًا بانتظار موافقة المالك", /عامل اختبار التسجيل/.test(text()));
+click(buttonByText(/^خروج$/));
+await waitFor(() => window.location.pathname === "/login" && $$("input").length >= 2, {
+  label: "العودة إلى الدخول بعد التسجيل",
+});
 
 // ---- 2) دخول المالك ----
-await login("abden.younes", "Qn&112233#Do");
+await login("abden.younes", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "الدخول كمالك", timeout: 12000 });
 check("👑 المالك دخل → لوحة التحكم", true);
+check(
+  "تذكر المستخدم يحفظ الاسم فقط دون كلمة المرور",
+  window.localStorage.getItem("aquadior:remembered-username") === "abden.younes" &&
+    !/demo-only-pass/.test(window.localStorage.getItem("aquadior:remembered-username") || "")
+);
 
 await waitFor(() => $$("a[href]").length > 2, { label: "القائمة" });
 check("لوحة التحكم فيها بيانات", text().length > 300, `${text().length} حرف`);
@@ -140,7 +194,6 @@ const ADMIN_ROUTES = [
   ["/admin/registrations", "طلبات التسجيل"],
   ["/admin/attendance", "الحضور"],
   ["/admin/withdrawals", "الفلوس"],
-  ["/admin/sites", "المواقع"],
   ["/admin/projects", "المشاريع"],
   ["/admin/settlements", "التسويات"],
   ["/admin/audit", "سجل التعديلات"],
@@ -162,6 +215,9 @@ for (const [route, label] of ADMIN_ROUTES) {
     check(`${label}`, false, e.message);
   }
 }
+setPath("/admin/sites");
+await waitFor(() => window.location.pathname === "/admin/projects", { label: "تحويل رابط المواقع القديم" });
+check("رابط المواقع القديم يوجّه إلى المشاريع/المواقع", true);
 
 // ---- 4) خروج ودخول عامل ----
 console.log("\n--- 👷 شاشات العامل ---");
@@ -170,7 +226,7 @@ if (outBtn) {
   click(outBtn);
   await waitFor(() => window.location.pathname === "/login", { timeout: 8000, label: "الخروج" });
 }
-await login("worker01", "Qn&112233#Do");
+await login("worker01", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "الدخول كعامل", timeout: 12000 });
 check("👷 العامل دخل → شاشة العمال", true);
 
@@ -179,18 +235,53 @@ const homeBefore = text();
 check("شاشة العامل الرئيسية بتعرض بياناته", homeBefore.length > 200, `${homeBefore.length} حرف`);
 check("أزرار الحضور والفلوس موجودة", !!buttonByText(/نزلت النهاردة/), "زر: نزلت النهاردة");
 
-// ---- 5) تسجيل حضور ----
+// ---- 5) تسجيل حضور واحد مرتبط بمشروعين ----
 const errBeforeAtt = errors.length;
+const firstProject = buttonByText(/مشروع اختبار آلي/);
+const secondProject = buttonByText(/موقع اختبار آلي ثانٍ/);
+await waitFor(() => firstProject && secondProject && !firstProject.disabled && !secondProject.disabled, { label: "جاهزية قائمة مشاريع العامل" });
+if (firstProject && secondProject) {
+  click(firstProject);
+  await waitFor(() => !!buttonByText(/✓\s*مشروع اختبار آلي/), { label: "اختيار المشروع الأول" });
+  const freshSecondProject = buttonByText(/موقع اختبار آلي ثانٍ/);
+  if (freshSecondProject) click(freshSecondProject);
+  await waitFor(() => !!buttonByText(/✓\s*موقع اختبار آلي ثانٍ/), { label: "اختيار المشروع الثاني" });
+  check("اختيار مشروعين للحضور اليومي", true);
+} else {
+  check("اختيار مشروعين للحضور اليومي", false, "قائمة المشاريع لم تظهر");
+}
+await waitFor(() => {
+  const button = buttonByText(/نزلت النهاردة/);
+  return !!button && !button.disabled;
+}, { label: "تفعيل زر تسجيل الحضور" });
 const attBtn = buttonByText(/نزلت النهاردة/);
 if (attBtn) {
   click(attBtn);
   try {
-    await waitFor(() => /✓ نزلت|نزلت خلاص|المواقع اللي سجّلتها|تم/i.test(text()), { timeout: 9000, label: "تسجيل الحضور" });
-    check("📅 تسجيل الحضور نجح", errors.length === errBeforeAtt, text().includes("نزلت") ? "الشاشة اتحدّثت" : "");
+    await waitFor(() => /المشاريع المسجلة لحضور اليوم/.test(text()) && !!buttonByText(/\+ مشروع/), { timeout: 9000, label: "تأكيد ربط الحضور بمشاريعه" });
+    check("📅 تسجيل الحضور نجح", errors.length === errBeforeAtt, "سجل حضور واحد ظاهر للمشاريع المحددة");
+    check("الحضور مرتبط بالمشروعين المختارين", text().includes("مشروع اختبار آلي") && text().includes("موقع اختبار آلي ثانٍ"));
   } catch (e) {
-    check("📅 تسجيل الحضور نجح", false, e.message + " | " + (errors[errors.length - 1] || "").slice(0, 120));
+    check("📅 تسجيل الحضور نجح", false, e.message + " | " + (errors[errors.length - 1] || text()).slice(0, 240).replace(/\s+/g, " "));
   }
 }
+const formattedOneDay = "1";
+const formattedDailyWage = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(350);
+try {
+  await waitFor(() => {
+    const cards = $$(".stats .stat");
+    const days = cards.find((card) => /أيام الشغل/.test(card.textContent || ""))?.querySelector(".value")?.textContent?.trim();
+    const earned = cards.find((card) => /استحقاق/.test(card.textContent || ""))?.querySelector(".value")?.textContent;
+    return days === formattedOneDay && earned?.includes(formattedDailyWage);
+  }, { timeout: 9000, label: "تحديث الرصيد العام لليومية مرة واحدة" });
+} catch (error) {
+  check("انتظار تحديث الرصيد العام بعد الحضور", false, `${error.message} | ${text().slice(0, 300).replace(/\\s+/g, " ")}`);
+}
+const statCards = $$(".stats .stat");
+const dayStat = statCards.find((card) => /أيام الشغل/.test(card.textContent || ""));
+const earnedStat = statCards.find((card) => /استحقاق/.test(card.textContent || ""));
+check("مشروعان لا يكرران اليومية: يوم واحد فقط", dayStat?.querySelector(".value")?.textContent?.trim() === formattedOneDay);
+check("استحقاق اليوم يظهر يومية واحدة (350 ج.م)", earnedStat?.querySelector(".value")?.textContent?.includes(formattedDailyWage));
 
 // ---- 6) أخذ فلوس (مبلغ صغير — المفروض يعدّي) ----
 await sleep(600);

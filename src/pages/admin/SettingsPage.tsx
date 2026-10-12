@@ -5,20 +5,20 @@ import { DEFAULT_SETTINGS } from "../../lib/types";
 
 export default function SettingsPage() {
   const [app, setApp] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [tgToken, setTgToken] = useState("");
   const [tgChat, setTgChat] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const { data } = await supabase.from("settings").select("*");
+    const { data, error } = await supabase.from("settings").select("*");
+    if (error) {
+      setErr(`تعذر تحميل الإعدادات: ${error.message}`);
+      return;
+    }
     (data ?? []).forEach((r: any) => {
       if (r.key === "app") setApp({ ...DEFAULT_SETTINGS, ...r.value });
-      if (r.key === "telegram") {
-        setTgToken(r.value?.bot_token ?? "");
-        setTgChat(r.value?.chat_id ?? "");
-      }
+      if (r.key === "telegram") setTgChat(r.value?.chat_id ?? "");
     });
   }
 
@@ -28,61 +28,78 @@ export default function SettingsPage() {
 
   async function saveApp() {
     setErr("");
+    setMsg("");
+    const limit = Number(app.auto_approve_limit);
+    if (!Number.isFinite(limit) || limit < 0 || limit >= 100000000) {
+      setErr("سقف الموافقة يجب أن يكون بين صفر و 99,999,999.99");
+      return;
+    }
+    if (typeof app.currency !== "string" || app.currency.trim().length > 20) {
+      setErr("رمز العملة طويل جدًا أو غير صحيح");
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase
-      .from("settings")
-      .update({ value: app, updated_at: new Date().toISOString() })
-      .eq("key", "app");
-    setBusy(false);
-    if (error) return setErr(error.message);
-    setMsg("تم حفظ الإعدادات ✅");
+    try {
+      const { error } = await supabase.from("settings").upsert(
+        {
+          key: "app",
+          value: { ...app, auto_approve_limit: limit, currency: app.currency.trim() || "ج.م" },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      );
+      if (error) throw error;
+      setApp((current) => ({ ...current, auto_approve_limit: limit, currency: current.currency.trim() || "ج.م" }));
+      setMsg("تم حفظ الإعدادات ✅");
+    } catch (error: any) {
+      setErr(error?.message ?? "تعذر حفظ الإعدادات");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveTg() {
     setErr("");
+    setMsg("");
     setBusy(true);
-    const { data } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "telegram")
-      .single();
-    const { error } = await supabase
-      .from("settings")
-      .update({
-        value: { ...(data?.value ?? {}), bot_token: tgToken.trim(), chat_id: tgChat.trim() },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("key", "telegram");
-    setBusy(false);
-    if (error) return setErr(error.message);
-    setMsg("تم حفظ إعدادات تليجرام ✅");
+    try {
+      const { data, error: readError } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "telegram")
+        .maybeSingle();
+      if (readError) throw readError;
+      const value = { ...(data?.value ?? {}), chat_id: tgChat.trim() };
+      delete value.bot_token;
+      const { error } = await supabase.from("settings").upsert(
+        { key: "telegram", value, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+      if (error) throw error;
+      setMsg("تم حفظ إعدادات تليجرام ✅");
+    } catch (error: any) {
+      setErr(error?.message ?? "تعذر حفظ إعدادات تليجرام");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function testTg() {
     setErr("");
     setMsg("");
-    if (!tgToken.trim() || !tgChat.trim())
-      return setErr("اكتب التوكن والـ chat id الأول");
+    if (!tgChat.trim()) return setErr("اكتب الـ chat id واحفظه أولاً");
     setBusy(true);
     try {
-      const r = await fetch(
-        `https://api.telegram.org/bot${tgToken.trim()}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: tgChat.trim(),
-            text: "✅ اختبار من تطبيق أكوا ديور للمقاولات — الإشعارات شغالة!",
-          }),
-        }
-      );
-      const j = await r.json();
-      if (!j.ok) return setErr("فشل: " + (j.description ?? "خطأ غير معروف"));
+      const { data, error } = await supabase.functions.invoke("notify-telegram", {
+        body: { action: "test" },
+      });
+      if (error || !data?.ok) throw error ?? new Error("فشل إرسال الاختبار");
       setMsg("تم الإرسال ✅ — شوف تليجرام");
-    } catch (e: any) {
-      setErr("فشل الإرسال: " + e.message);
+    } catch (error: any) {
+      setErr(error?.message ?? "فشل إرسال الاختبار؛ تحقق من نشر Edge Function وإعداد أسرارها");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
@@ -105,26 +122,16 @@ export default function SettingsPage() {
             />
           </label>
           <label className="field">
-            <span>خصم نسيان التسجيل (جنيه)</span>
+            <span>عملة إشعارات وتقارير تليجرام</span>
             <input
               className="input"
-              inputMode="decimal"
-              value={app.absence_deduction}
-              onChange={(e) =>
-                setApp({ ...app, absence_deduction: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span>العملة</span>
-            <input
-              className="input"
+              maxLength={20}
               value={app.currency}
               onChange={(e) => setApp({ ...app, currency: e.target.value })}
             />
           </label>
           <label className="field">
-            <span>التحقق بالموقع (GPS)</span>
+            <span>تسجيل موقع الحضور (GPS)</span>
             <select
               className="input"
               value={app.gps_enabled ? "1" : "0"}
@@ -132,15 +139,18 @@ export default function SettingsPage() {
                 setApp({ ...app, gps_enabled: e.target.value === "1" })
               }
             >
-              <option value="1">مفعّل (يسجّل المكان للمراجعة)</option>
-              <option value="0">متوقف</option>
+              <option value="1">مفعّل — يحفظ الإحداثيات للمراجعة فقط</option>
+              <option value="0">متوقف — لا يطلب الموقع</option>
             </select>
           </label>
         </div>
 
         <p className="small muted mb">
-          أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده.
+          أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده. رمز العملة يخص رسائل تليجرام فقط؛ عرض المبالغ داخل التطبيق بالجنيه المصري.
         </p>
+        <div className="alert info mb">
+          خصم الغياب الآلي وموعد قفل اليوم غير مفعّلين في هذه النسخة؛ الحضور لا يُخصم تلقائيًا بسبب الغياب.
+        </div>
 
         <button className="btn btn-primary" onClick={saveApp} disabled={busy}>
           حفظ الإعدادات
@@ -150,19 +160,9 @@ export default function SettingsPage() {
       <div className="card">
         <div className="card-title">إشعارات تليجرام (مجانية)</div>
         <p className="small muted mb">
-          اعمل Bot من <b>@BotFather</b> على تليجرام، انسخ التوكن، وبعدين ابعتله
-          أي رسالة وخد الـ chat id من <code>@userinfobot</code>.
+          احتفظ بتوكن البوت كسرّ في إعدادات Supabase Edge Functions فقط، ولا تضعه في التطبيق أو قاعدة البيانات.
+          حدّد <code>TELEGRAM_BOT_TOKEN</code> عبر Supabase CLI، ثم أدخل Chat ID هنا.
         </p>
-        <label className="field">
-          <span>Bot Token</span>
-          <input
-            className="input"
-            dir="ltr"
-            placeholder="123456:ABC-DEF..."
-            value={tgToken}
-            onChange={(e) => setTgToken(e.target.value)}
-          />
-        </label>
         <label className="field">
           <span>Chat ID</span>
           <input
@@ -199,11 +199,14 @@ export default function SettingsPage() {
             overflowX: "auto",
           }}
         >
-{`supabase functions deploy notify-telegram
+{`# خزّن الأسرار خارج التطبيق/قاعدة البيانات
+supabase secrets set TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN' TELEGRAM_CRON_SECRET='LONG_RANDOM_SECRET' APP_ORIGIN='https://your-app.example'
+supabase functions deploy notify-telegram
 
-# جدول التقرير اليومي (كل يوم 9 مساءً)
-# Supabase Dashboard → Edge Functions → Cron
-# 0 18 * * *  →  notify-telegram?action=daily`}
+# أعدّ مجدولاً يرسل POST إلى:
+# https://YOUR_PROJECT.supabase.co/functions/v1/notify-telegram?action=daily
+# مع الترويسة x-cron-secret: LONG_RANDOM_SECRET
+# لا تضع السر في مستودع Git أو في واجهة التطبيق.`}
         </pre>
       </div>
     </>

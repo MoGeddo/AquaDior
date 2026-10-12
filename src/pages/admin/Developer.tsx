@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
 import { db } from "../../lib/db";
 import { money } from "../../lib/calc";
@@ -30,21 +30,22 @@ export default function Developer() {
   const [logs, setLogs] = useState<any[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
 
-  async function load() {
+  const load = useCallback(async () => {
     const { data } = await supabase
       .from("profiles")
       .select("*")
       .order("created_at", { ascending: false });
-    setUsers((data ?? []) as Profile[]);
+    const userRows = (data ?? []) as Profile[];
+    setUsers(userRows);
 
     if (!DEMO_MODE) {
       const { data: s } = await supabase.rpc("system_stats");
       if (s) setStats(s);
     } else {
       setStats({
-        workers: users.filter((u) => u.role === "worker").length,
-        admins: users.filter((u) => u.role !== "worker").length,
-        pending: users.filter((u) => u.status === "pending").length,
+        workers: userRows.filter((u) => u.role === "worker").length,
+        admins: userRows.filter((u) => u.role !== "worker").length,
+        pending: userRows.filter((u) => u.status === "pending").length,
         attendance: 0,
         withdrawals: 0,
         deductions: 0,
@@ -74,11 +75,11 @@ export default function Developer() {
       (p ?? []).forEach((x: any) => (m[x.id] = x.full_name));
       setNames(m);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   const filtered = users.filter(
     (u) =>
@@ -268,7 +269,15 @@ export default function Developer() {
                   </span>
                 </div>
               ))}
-              <button className="btn btn-block mt" onClick={() => db.queue.clear()}>
+              <button
+                className="btn btn-block mt"
+                onClick={async () => {
+                  if (window.confirm("سيتم حذف كل عمليات المزامنة من هذا الجهاز. هل أنت متأكد؟")) {
+                    await db.queue.clear();
+                    await load();
+                  }
+                }}
+              >
                 🗑 امسح العمليات المستنية
               </button>
             </div>
@@ -377,11 +386,18 @@ function EditUser({
   const [newPass, setNewPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const canResetWorkerPassword = user.role === "worker" && role === "worker";
 
   async function save() {
     setErr("");
     setBusy(true);
     try {
+      if (newPass.trim() && (newPass.trim().length < 8 || newPass.trim().length > 128)) {
+        throw new Error("كلمة السر يجب أن تكون بين 8 و128 حرفًا");
+      }
+      if (newPass.trim() && !canResetWorkerPassword) {
+        throw new Error("يمكن تغيير كلمة السر هنا لحساب عامل فقط؛ لا تغيّر كلمة سر حساب إداري من التطبيق");
+      }
       if (!DEMO_MODE) {
         const { error } = await supabase.rpc("admin_update_user", {
           p_user_id: user.id,
@@ -394,7 +410,7 @@ function EditUser({
         });
         if (error) throw new Error(error.message);
 
-        if (newPass.trim().length >= 4) {
+        if (newPass.trim().length >= 8) {
           const { error: pErr } = await supabase.rpc("reset_worker_password", {
             p_worker_id: user.id,
             p_password: newPass.trim(),
@@ -486,15 +502,21 @@ function EditUser({
         </label>
       </div>
 
-      <label className="field">
-        <span>🔑 كلمة سر جديدة (سيبه فاضي لو مش عايز تغيّر)</span>
-        <input
-          className="input"
-          value={newPass}
-          onChange={(e) => setNewPass(e.target.value)}
-          placeholder="4 حروف على الأقل"
-        />
-      </label>
+      {canResetWorkerPassword && (
+        <label className="field">
+          <span>🔑 كلمة سر عامل جديدة (اختياري؛ 8 أحرف على الأقل)</span>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            value={newPass}
+            onChange={(e) => setNewPass(e.target.value)}
+            placeholder="8 أحرف على الأقل"
+          />
+        </label>
+      )}
 
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? "جاري الحفظ..." : "حفظ"}

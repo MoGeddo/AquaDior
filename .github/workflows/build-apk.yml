@@ -8,13 +8,11 @@
 #      لينك مباشر (يفتح من تليفونك):
 #      https://github.com/MoGeddo/AquaDior/releases/download/apk-latest/AquaDior.apk
 #
-#  ملاحظة: لو مفيش قيم Supabase، البناء بيطلع في "الوضع التجريبي"
-#  ببيانات وهمية — وده أحسن حاجة لتجربة التطبيق على التليفون.
-#  عشان تربطه بقاعدة بياناتك: Settings → Secrets and variables →
-#  Actions → Variables → ضيف:
+#  ملاحظة: لا ينشر الـ workflow نسخة Demo أو بيانات تجريبية.
+#  يجب ضبط متغيري Supabase قبل تشغيله:
 #      VITE_SUPABASE_URL
 #      VITE_SUPABASE_ANON_KEY
-#  (مفتاح anon مش سرّ — هو مصمَّم يبقى في الأبليكيشن، والحماية بـ RLS)
+#  (المفتاح العام anon مخصص للعميل؛ الحماية الفعلية عبر RLS.)
 # ==============================================================
 name: Build APK
 
@@ -50,13 +48,12 @@ jobs:
           cache: npm
 
       - name: تنزيل المكتبات
-        run: npm ci || npm install
+        run: npm ci
 
-      - name: فحص سريع (مش إلزامي)
-        run: npm run lint || true
+      - name: فحص قواعد الكود
+        run: npm run lint
 
       - name: 🧪 اختبار التشغيل (Smoke Test)
-        continue-on-error: true
         run: npm run test:smoke
 
       - name: بناء الويب
@@ -64,18 +61,17 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
         run: |
-          # 1) البناء الرسمي (بيفحص الأنواع الأول)
-          if npm run build; then
-            echo "✅ البناء نجح بفحص الأنواع كامل"
-          else
-            echo "::warning::فحص الأنواع (tsc) فشل — هبني من غير فحص عشان تاخد APK تجربه على التليفون، بس صلّح الأخطاء اللي فوق"
-            rm -rf dist
-            npx vite build
+          set -euo pipefail
+          if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${VITE_SUPABASE_ANON_KEY:-}" ]]; then
+            echo "::error::لن يُبنى APK ببيانات وهمية. اضبط VITE_SUPABASE_URL وVITE_SUPABASE_ANON_KEY معًا."
+            exit 1
           fi
+          export VITE_DEMO_MODE=0
+          echo "بناء إصدار تشغيل حقيقي مرتبط بمشروع Supabase المضبوط."
 
-          # 2) تأكيد إن في فعلاً ملفات مبنية (لو src ناقص، ده اللي هيفشل)
+          npm run build
           if [ ! -f dist/index.html ]; then
-            echo "::error::مفيش dist/index.html — ملفات التطبيق (src/) مش موجودة في الريبو"
+            echo "::error::مفيش dist/index.html بعد البناء"
             exit 1
           fi
           echo "✅ الويب جاهز: $(find dist -type f | wc -l) ملف"
@@ -117,14 +113,15 @@ jobs:
 
       - name: تنزيل المكتبات + Capacitor
         run: |
-          npm ci || npm install
-          npm i --no-save @capacitor/core@^7 @capacitor/android@^7 @capacitor/cli@^7
+          npm ci
+          npm i --no-save @capacitor/core@^7 @capacitor/android@^7 @capacitor/cli@^7 @capacitor/assets@^3
           npx cap --version
 
-      - name: تهيئة مشروع أندرويد
+      - name: تهيئة مشروع أندرويد وأيقونة التطبيق
         run: |
           npx cap add android
           npx cap sync android
+          npx @capacitor/assets generate --android --iconBackgroundColor '#08090b' --splashBackgroundColor '#08090b'
 
       - name: تجهيز Android SDK
         run: |
@@ -134,28 +131,20 @@ jobs:
             "$SDK" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
           fi
 
-      - name: 🔑 استرجاع مفتاح التوقيع من الكاش
-        uses: actions/cache@v4
-        with:
-          path: release.keystore
-          key: aquadior-keystore-v1
-
-      - name: 🔑 تجهيز مفتاح التوقيع
+      - name: 🔑 تجهيز مفتاح توقيع إصدار موثوق
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-            echo "✅ استخدمت المفتاح المرفوع في الـ Secrets"
-          elif [ -f release.keystore ]; then
-            echo "✅ المفتاح موجود في الكاش"
-          else
-            keytool -genkeypair -keystore release.keystore -alias aquadior \
-              -keyalg RSA -keysize 2048 -validity 10950 \
-              -storepass aquadior123 -keypass aquadior123 \
-              -dname "CN=AquaDior, O=AquaDior, L=Cairo, C=EG"
-            echo "🆕 عملت مفتاح توقيع جديد"
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEYSTORE_ALIAS" ]]; then
+            echo "::error::أنشئ keystore خاصًا وضع KEYSTORE_BASE64 وKEYSTORE_PASSWORD وKEYSTORE_ALIAS في GitHub Actions Secrets. لا يستخدم البناء كلمة مرور افتراضية."
+            exit 1
           fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+          test -s release.keystore
+          keytool -list -keystore release.keystore -storepass "$KEYSTORE_PASSWORD" -alias "$KEYSTORE_ALIAS" > /dev/null
 
       - name: ✍️ تفعيل التوقيع في Gradle
         run: |
@@ -166,9 +155,9 @@ jobs:
               signingConfigs {
                   release {
                       storeFile file(System.getenv("KS_FILE") ?: "${rootProject.projectDir}/../release.keystore")
-                      storePassword System.getenv("KS_PASS") ?: "aquadior123"
-                      keyAlias System.getenv("KS_ALIAS") ?: "aquadior"
-                      keyPassword System.getenv("KS_PASS") ?: "aquadior123"
+                      storePassword System.getenv("KS_PASS")
+                      keyAlias System.getenv("KS_ALIAS")
+                      keyPassword System.getenv("KS_PASS")
                   }
               }
               buildTypes {
@@ -187,32 +176,35 @@ jobs:
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
         run: |
+          set -euo pipefail
           cd android
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
-          ./gradlew --no-daemon assembleRelease || echo "::warning::بناء النسخة الموقّعة فشل — هنستخدم نسخة الـ debug"
+          ./gradlew --no-daemon assembleRelease
 
       - name: تجميع الملفات
         run: |
+          set -euo pipefail
           mkdir -p apk
-          cp android/app/build/outputs/apk/debug/app-debug.apk apk/AquaDior-debug.apk || true
-          cp android/app/build/outputs/apk/release/app-release.apk apk/AquaDior.apk || true
-          if [ ! -f apk/AquaDior.apk ]; then
-            cp apk/AquaDior-debug.apk apk/AquaDior.apk
-          fi
+          cp android/app/build/outputs/apk/debug/app-debug.apk apk/AquaDior-debug.apk
+          cp android/app/build/outputs/apk/release/app-release.apk apk/AquaDior.apk
           ls -lh apk/
           test -s apk/AquaDior.apk
+          test -s apk/AquaDior-debug.apk
 
       - name: 🔍 التحقق من محتوى الـ APK
         run: |
+          set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
           APK=apk/AquaDior.apk
+          test -x "$BT/aapt2"
+          test -x "$BT/apksigner"
           echo "===== بيانات التطبيق ====="
-          "$BT/aapt2" dump badging "$APK" | head -6 || true
-          echo "===== هل ملفات الويب جوه الـ APK؟ ====="
-          unzip -l "$APK" | grep -E "assets/public/(index\.html|assets/)" | head -6 || echo "⚠️ مفيش ملفات ويب!"
+          "$BT/aapt2" dump badging "$APK" | head -6
+          echo "===== ملفات الويب داخل الـ APK ====="
+          unzip -l "$APK" | grep -E "assets/public/(index\.html|assets/)"
           echo "===== التحقق من التوقيع ====="
-          "$BT/apksigner" verify --print-certs "$APK" | head -8 || echo "⚠️ الـ APK مش موقّع"
+          "$BT/apksigner" verify --print-certs "$APK" | head -8
           echo "===== الحجم ====="
           ls -lh apk/
 
@@ -233,16 +225,11 @@ jobs:
 
             1. نزّل الملف **AquaDior.apk**
             2. افتحه → لو ظهر تحذير اختر **"السماح من هذا المصدر"**
-            3. افتح التطبيق وسجّل دخول بحساب المالك (الوضع التجريبي)
+            3. سجّل الدخول بحساب Supabase الخاص بمشروع النشر.
 
-            **حسابات التجربة:**
-            | الدور | اليوزر | الباسورد |
-            |---|---|---|
-            | مالك | `abden.younes` | `Qn&112233#Do` |
-            | مالك | `mahmoud.abdin` | `Qn&112233#Do` |
-            | مطوّر | `MostafaGeddo` | `Qn&112233#Do` |
+            لا يسمح workflow بإصدار APK دون إعدادات Supabase؛ لا تُضمّن بيانات Demo في إصدار التشغيل الحقيقي.
 
-            > `AquaDior-debug.apk` نسخة للتجربة كمان — لو نسخة الـ release عملت مشكلة استعملها.
+            > `AquaDior-debug.apk` نسخة تصحيح منفصلة.
           files: apk/*.apk
           prerelease: true
           make_latest: false

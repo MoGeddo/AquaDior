@@ -1,52 +1,45 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
 import type { Project } from "../../lib/types";
+import { todayStr } from "../../lib/calc";
 import { Modal } from "../../components/Modal";
+
+/** CSV escaping plus formula-injection protection for user-controlled fields. */
+function csvCell(value: unknown): string {
+  let text = String(value ?? "");
+  const firstSignificant = [...text].find((char) => {
+    const code = char.charCodeAt(0);
+    return code > 0x20 && !/\s/u.test(char);
+  });
+  if (firstSignificant && "=+@-".includes(firstSignificant)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function csvRow(...values: unknown[]): string {
+  return values.map(csvCell).join(",");
+}
 
 /** يحوّل بيانات المشروع لملف CSV ويحمّله */
 function downloadCsv(filename: string, data: any) {
   const proj = data.project ?? {};
-  const lines: string[] = [];
-  lines.push(`"مشروع","${proj.name ?? ""}"`);
-  lines.push(`"الحالة","${proj.status ?? ""}"`);
-  lines.push(`"اتقفل","${proj.closed_at ?? ""}"`);
-  lines.push("");
-
-  lines.push("=== العمال ===");
-  lines.push("الاسم,الموبايل,اليومية");
-  (data.workers ?? []).forEach((w: any) =>
-    lines.push(`"${w.full_name}","${w.phone ?? ""}",${w.project_daily_wage ?? w.daily_wage ?? 0}`)
+  const lines: string[] = [
+    csvRow("مشروع/موقع", proj.name),
+    csvRow("العنوان", proj.address),
+    csvRow("الحالة", proj.status),
+    csvRow("أُرشف", proj.closed_at),
+    "",
+    csvRow("=== العمال المعيّنون ==="),
+    csvRow("الاسم", "الموبايل"),
+  ];
+  (data.workers ?? []).forEach((worker: any) =>
+    lines.push(csvRow(worker.full_name, worker.phone))
   );
-  lines.push("");
-
-  lines.push("=== الحضور ===");
-  lines.push("التاريخ,العامل,اليومية,سجّل الساعة");
-  (data.attendance ?? []).forEach((a: any) =>
-    lines.push(`${a.work_date},"${a.full_name}",${a.daily_wage ?? 0},${a.created_at ?? ""}`)
-  );
-  lines.push("");
-
-  lines.push("=== الفلوس ===");
-  lines.push("التاريخ,العامل,المبلغ,ملاحظة,الحالة");
-  (data.withdrawals ?? []).forEach((w: any) =>
-    lines.push(`${(w.created_at ?? "").slice(0, 10)},"${w.full_name}",${w.amount},"${w.note ?? ""}",${w.status}`)
-  );
-  lines.push("");
-
-  lines.push("=== الخصومات ===");
-  lines.push("التاريخ,العامل,المبلغ,السبب");
-  (data.deductions ?? []).forEach((d: any) =>
-    lines.push(`${(d.created_at ?? "").slice(0, 10)},"${d.full_name}",${d.amount},"${d.reason}"`)
-  );
-  lines.push("");
-
-  lines.push("=== التسويات ===");
-  lines.push("العامل,أيام,اليومية,استحقاق,مسحوب,خصومات,الصافي,الحالة");
-  (data.settlements ?? []).forEach((s: any) =>
-    lines.push(`"${s.full_name}",${s.days_worked},${s.daily_wage},${s.total_earned},${s.total_withdrawn},${s.total_deductions},${s.net_amount},${s.status}`)
+  lines.push("", csvRow("=== الحضور في المشروع/الموقع ==="), csvRow("التاريخ", "العامل", "المشاريع/المواقع المسجلة", "سجّل الساعة"));
+  (data.attendance ?? []).forEach((attendance: any) =>
+    lines.push(csvRow(attendance.work_date, attendance.full_name, (attendance.projects ?? []).join("، "), attendance.created_at))
   );
 
-  const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
     type: "text/csv;charset=utf-8",
   });
   const url = URL.createObjectURL(blob);
@@ -54,7 +47,7 @@ function downloadCsv(filename: string, data: any) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export default function Projects() {
@@ -92,10 +85,10 @@ export default function Projects() {
     setBusy(false);
   }
 
-  /** قفل المشروع — بعد التحقق الحقيقي من كلمة السر */
+  /** أرشفة المشروع — بعد التحقق الحقيقي من كلمة السر */
   async function closeProject(p: Project) {
     if (!pw.trim()) {
-      setPwErr("اكتب كلمة السر عشان تقفل المشروع");
+      setPwErr("اكتب كلمة السر لتأكيد الأرشفة");
       return;
     }
     setBusy(true);
@@ -109,7 +102,7 @@ export default function Projects() {
     });
     if (authErr) {
       setBusy(false);
-      setPwErr("كلمة السر غلط — القفل ماتنفّذش. جرّب تاني.");
+      setPwErr("كلمة السر غلط — الأرشفة ما تمت. جرّب تاني.");
       setPw("");
       return;
     }
@@ -122,7 +115,7 @@ export default function Projects() {
     }
     setConfirm(null);
     setPw("");
-    setMsg("تم قفل المشروع ✅ (البيانات كلها اتحفظت في الأرشيف)");
+    setMsg("تمت أرشفة المشروع ✅ (البيانات محفوظة في الأرشيف)");
     await load();
   }
 
@@ -160,7 +153,7 @@ export default function Projects() {
           </button>
         </div>
         <button className="btn btn-primary" onClick={() => setAdding(true)}>
-          + إضافة مشروع
+          + إضافة مشروع/موقع
         </button>
       </div>
 
@@ -170,13 +163,13 @@ export default function Projects() {
       {tab === "active" && (
         <div className="card">
           <div className="card-title">
-            <span>المشاريع الشغّالة</span>
+            <span>المشاريع/المواقع الشغّالة</span>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>المشروع</th>
+                  <th>المشروع/الموقع</th>
                   <th>البداية</th>
                   <th>الحالة</th>
                   <th>تفاصيل</th>
@@ -189,6 +182,7 @@ export default function Projects() {
                   <tr key={p.id}>
                     <td>
                       <b>{p.name}</b>
+                      {p.address && <div className="small muted">📍 {p.address}</div>}
                       {p.description && <div className="small muted">{p.description}</div>}
                     </td>
                     <td className="num">{p.start_date ?? "—"}</td>
@@ -207,7 +201,7 @@ export default function Projects() {
                     </td>
                     <td>
                       <button className="btn btn-sm btn-danger" onClick={() => askClose(p)}>
-                        قفل المشروع
+                        أرشفة المشروع
                       </button>
                     </td>
                   </tr>
@@ -229,19 +223,17 @@ export default function Projects() {
       {tab === "archive" && (
         <div className="card">
           <div className="card-title">
-            <span>📦 أرشيف المشاريع المقفولة — البيانات كلها محفوظة</span>
+            <span>📦 أرشيف المشاريع/المواقع المؤرشفة — البيانات كلها محفوظة</span>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>المشروع</th>
-                  <th>اتقفل</th>
+                  <th>المشروع/الموقع</th>
+                  <th>أُرشف</th>
                   <th>عمال</th>
                   <th>سجلات حضور</th>
-                  <th>فلوس</th>
-                  <th>خصومات</th>
-                  <th>تفاصيل</th>
+                  <th>تفاصيل العاملين والحضور</th>
                   <th>تصدير</th>
                 </tr>
               </thead>
@@ -254,8 +246,6 @@ export default function Projects() {
                     <td className="num small">{(a.closed_at ?? "").slice(0, 10)}</td>
                     <td className="num">{a.workers_count}</td>
                     <td className="num">{a.attendance_count}</td>
-                    <td className="num amber">{a.total_withdrawn}</td>
-                    <td className="num red">{a.total_deductions}</td>
                     <td>
                       <button
                         className="btn btn-sm btn-primary"
@@ -283,8 +273,8 @@ export default function Projects() {
                 ))}
                 {archive.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="center muted">
-                      مفيش مشاريع مقفولة
+                    <td colSpan={6} className="center muted">
+                      مفيش مشاريع/مواقع مؤرشفة
                     </td>
                   </tr>
                 )}
@@ -295,19 +285,17 @@ export default function Projects() {
       )}
 
       <div className="card">
-        <div className="card-title">🔒 إزاي القفل بيشتغل؟</div>
+        <div className="card-title">🔒 إزاي الأرشفة بتشتغل؟</div>
         <p className="small muted" style={{ lineHeight: 1.9 }}>
-          ✅ <b>القفل ما بيمسحش أي بيانات.</b> كل سجلات الحضور والفلوس والخصومات
-          بتفضل في الداتابيز للأبد.
-          <br />✅ <b>لازم كلمة السر</b> عشان تقفل — عشان محدش يقفل بالغلط.
-          <br />✅ القفل بيقفل حسابات العمال في المشروع ده بس (ما يسجّلوش فيه تاني).
-          <br />✅ بيولّد <b>تسوية نهائية</b> لكل عامل (استحقاق − مسحوب − خصومات).
-          <br />✅ المشروع بيتنقل لـ <b>الأرشيف</b> وتقدر تفتحه وتصدّره CSV في أي وقت.
+          ✅ <b>الأرشفة لا تمسح بيانات الحضور.</b>
+          <br />✅ <b>الرصيد المالي للعامل عام</b> ولا يتغير بأرشفة مشروع؛ اليومية تُحسب مرة واحدة في اليوم مهما تعددت المشاريع.
+          <br />✅ <b>لازم كلمة السر</b> لتأكيد الأرشفة.
+          <br />✅ المشروع ينتقل إلى <b>الأرشيف</b> وتظل سجلات حضور العاملين المرتبطة به متاحة للإدارة.
         </p>
       </div>
 
       {adding && (
-        <Modal title="إضافة مشروع" onClose={() => setAdding(false)}>
+        <Modal title="إضافة مشروع/موقع" onClose={() => setAdding(false)}>
           <ProjectForm
             onDone={async () => {
               setAdding(false);
@@ -320,26 +308,23 @@ export default function Projects() {
 
       {/* ===== مودال القفل: تحذير + كلمة السر ===== */}
       {confirm && (
-        <Modal title={`⚠️ قفل مشروع ${confirm.name}؟`} onClose={() => setConfirm(null)}>
+        <Modal title={`⚠️ أرشفة مشروع ${confirm.name}؟`} onClose={() => setConfirm(null)}>
           <div className="alert error" style={{ lineHeight: 1.9 }}>
             <b>متأكد؟ ده إجراء مهم.</b>
             <br />
-            لما تقفل المشروع:
+            عند أرشفة المشروع:
             <br />
-            • كل العمال <b>ما يقدروش يسجّلوا</b> حضور أو ياخدوا فلوس في المشروع ده تاني
-            <br />
-            • هيتم <b>توليد تسوية نهائية</b> لكل عامل
+            • المشروع سيصبح مؤرشفًا، ولن يظهر ضمن المشاريع النشطة لتسجيل حضور جديد.
           </div>
 
           <div className="alert success" style={{ lineHeight: 1.9 }}>
             ✅ <b>البيانات مش هتتمسح خالص.</b>
             <br />
-            كل الحضور والفلوس والخصومات هتتحوّل للأرشيف وتفضل متاحة للأبد —
-            تقدر تفتح المشروع وتصدّره CSV في أي وقت.
+            سجلات الحضور وروابط المشاريع محفوظة، ويمكنك فتح الأرشيف وتصدير نشاط المشروع. الرصيد المالي يظل في كشف العامل العام ولا يتكرر هنا.
           </div>
 
           <label className="field">
-            <span>🔑 اكتب كلمة السر عشان تأكد القفل</span>
+            <span>🔑 اكتب كلمة السر لتأكيد الأرشفة</span>
             <input
               className="input"
               type="password"
@@ -355,14 +340,14 @@ export default function Projects() {
 
           <div className="flex gap mt">
             <button className="btn btn-ghost" onClick={() => setConfirm(null)}>
-              لا، سيب المشروع شغّال
+              لا، اترك المشروع نشطًا
             </button>
             <button
               className="btn btn-danger"
               onClick={() => closeProject(confirm)}
               disabled={busy || !pw.trim()}
             >
-              {busy ? "بيتحقق..." : "🔒 تأكيد القفل"}
+              {busy ? "بيتحقق..." : "🔒 تأكيد الأرشفة"}
             </button>
           </div>
         </Modal>
@@ -374,7 +359,7 @@ export default function Projects() {
   );
 }
 
-type DTab = "workers" | "attendance" | "money" | "ded" | "settle";
+type DTab = "workers" | "attendance";
 
 function ProjectDetail({ project, onClose }: { project: Project; onClose: () => void }) {
   const [data, setData] = useState<any>(null);
@@ -383,12 +368,14 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
   const [tab, setTab] = useState<DTab>("workers");
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setErr("");
       const { data, error } = await supabase.rpc("export_project_data", {
         p_project_id: project.id,
       });
+      if (cancelled) return;
       if (error) {
         setErr(error.message);
         setLoading(false);
@@ -397,13 +384,11 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
       setData(data);
       setLoading(false);
     })();
+    return () => { cancelled = true; };
   }, [project.id]);
 
   const workers: any[] = data?.workers ?? [];
   const attendance: any[] = data?.attendance ?? [];
-  const money: any[] = data?.withdrawals ?? [];
-  const ded: any[] = data?.deductions ?? [];
-  const settle: any[] = data?.settlements ?? [];
   const proj = data?.project ?? {};
 
   return (
@@ -413,52 +398,32 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
 
       {!loading && !err && (
         <>
-          {/* ===== ملخص ===== */}
+          {proj.address && <div className="small muted mb">📍 {proj.address}</div>}
           <div className="stat-row wrap mb">
             <div className="stat">
-              <span>👷 عمال</span>
+              <span>👷 العمال المرتبطون</span>
               <b>{workers.length}</b>
             </div>
             <div className="stat">
-              <span>📅 حضور</span>
+              <span>📅 سجلات الحضور بالمشروع</span>
               <b>{attendance.length}</b>
-            </div>
-            <div className="stat">
-              <span>💸 فلوس</span>
-              <b className="amber">{money.reduce((s, x) => s + (+x.amount || 0), 0)}</b>
-            </div>
-            <div className="stat">
-              <span>➖ خصومات</span>
-              <b className="red">{ded.reduce((s, x) => s + (+x.amount || 0), 0)}</b>
             </div>
           </div>
 
           {proj.closed_at && (
             <div className="alert" style={{ lineHeight: 1.9 }}>
-              🔒 المشروع ده <b>مقفول</b> — اتقفل يوم{" "}
-              <b>{(proj.closed_at ?? "").slice(0, 10)}</b>
-              {proj.archived_at && <> ودخل الأرشيف يوم <b>{proj.archived_at.slice(0, 10)}</b></>}.
-              <br />
-              البيانات كلها محفوظة ومتاحة للعرض والتصدير.
+              🔒 المشروع مؤرشف منذ <b>{(proj.closed_at ?? "").slice(0, 10)}</b>.
+              {proj.archived_at && <> دخل الأرشيف يوم <b>{proj.archived_at.slice(0, 10)}</b>.</>}
+              <br />تظهر هنا أنشطة هذا المشروع فقط؛ الرصيد المالي محفوظ مرة واحدة في كشف العامل العام.
             </div>
           )}
 
-          {/* ===== تبويبات ===== */}
           <div className="flex wrap mb">
             <button className={`btn btn-sm ${tab === "workers" ? "btn-primary" : ""}`} onClick={() => setTab("workers")}>
               👷 العمال ({workers.length})
             </button>
             <button className={`btn btn-sm ${tab === "attendance" ? "btn-primary" : ""}`} onClick={() => setTab("attendance")}>
               📅 الحضور ({attendance.length})
-            </button>
-            <button className={`btn btn-sm ${tab === "money" ? "btn-primary" : ""}`} onClick={() => setTab("money")}>
-              💸 الفلوس ({money.length})
-            </button>
-            <button className={`btn btn-sm ${tab === "ded" ? "btn-primary" : ""}`} onClick={() => setTab("ded")}>
-              ➖ الخصومات ({ded.length})
-            </button>
-            <button className={`btn btn-sm ${tab === "settle" ? "btn-primary" : ""}`} onClick={() => setTab("settle")}>
-              📋 التسويات ({settle.length})
             </button>
           </div>
 
@@ -467,25 +432,19 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
               <table>
                 <thead>
                   <tr>
-                    <th>العامل</th>
+                    <th>العامل المرتبط بالمشروع</th>
                     <th>الموبايل</th>
-                    <th>اليومية</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {workers.map((w, i) => (
-                    <tr key={i}>
-                      <td>
-                        <b>{w.full_name}</b>
-                      </td>
-                      <td className="num">{w.phone ?? "—"}</td>
-                      <td className="num">{w.project_daily_wage ?? w.daily_wage ?? 0}</td>
+                  {workers.map((worker, i) => (
+                    <tr key={worker.worker_id ?? i}>
+                      <td><b>{worker.full_name}</b></td>
+                      <td className="num">{worker.phone ?? "—"}</td>
                     </tr>
                   ))}
                   {workers.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="center muted">مفيش عمال</td>
-                    </tr>
+                    <tr><td colSpan={2} className="center muted">لا يوجد عامل مرتبط بهذا المشروع.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -497,119 +456,21 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
                   <tr>
                     <th>التاريخ</th>
                     <th>العامل</th>
-                    <th>اليومية</th>
+                    <th>المشاريع/المواقع في سجل الحضور</th>
+                    <th>وقت التسجيل</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {attendance.map((a, i) => (
-                    <tr key={i}>
-                      <td className="num">{a.work_date}</td>
-                      <td>{a.full_name}</td>
-                      <td className="num">{a.daily_wage ?? 0}</td>
+                  {attendance.map((row, i) => (
+                    <tr key={row.attendance_id ?? i}>
+                      <td className="num">{row.work_date}</td>
+                      <td>{row.full_name}</td>
+                      <td>{(row.projects ?? [project.name]).join("، ")}</td>
+                      <td className="num small">{row.created_at ? new Date(row.created_at).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                     </tr>
                   ))}
                   {attendance.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="center muted">مفيش حضور</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {tab === "money" && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>التاريخ</th>
-                    <th>العامل</th>
-                    <th>المبلغ</th>
-                    <th>الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {money.map((w, i) => (
-                    <tr key={i}>
-                      <td className="num small">{(w.created_at ?? "").slice(0, 10)}</td>
-                      <td>{w.full_name}</td>
-                      <td className="num red">{w.amount}</td>
-                      <td>
-                        <span className={`badge ${w.status === "approved" ? "green" : "amber"}`}>
-                          {w.status === "approved" ? "معتمد" : "معلّق"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {money.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="center muted">مفيش فلوس</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {tab === "ded" && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>التاريخ</th>
-                    <th>العامل</th>
-                    <th>المبلغ</th>
-                    <th>السبب</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ded.map((d, i) => (
-                    <tr key={i}>
-                      <td className="num small">{(d.created_at ?? "").slice(0, 10)}</td>
-                      <td>{d.full_name}</td>
-                      <td className="num red">{d.amount}</td>
-                      <td className="small">{d.reason ?? "—"}</td>
-                    </tr>
-                  ))}
-                  {ded.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="center muted">مفيش خصومات</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-
-            {tab === "settle" && (
-              <table>
-                <thead>
-                  <tr>
-                    <th>العامل</th>
-                    <th>أيام</th>
-                    <th>استحقاق</th>
-                    <th>مسحوب</th>
-                    <th>خصومات</th>
-                    <th>الصافي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settle.map((s, i) => (
-                    <tr key={i}>
-                      <td>
-                        <b>{s.full_name}</b>
-                      </td>
-                      <td className="num">{s.days_worked}</td>
-                      <td className="num">{s.total_earned}</td>
-                      <td className="num red">{s.total_withdrawn}</td>
-                      <td className="num red">{s.total_deductions}</td>
-                      <td className="num green">
-                        <b>{s.net_amount}</b>
-                      </td>
-                    </tr>
-                  ))}
-                  {settle.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="center muted">
-                        مفيش تسويات — التسويات بتتولد وقت القفل
-                      </td>
-                    </tr>
+                    <tr><td colSpan={4} className="center muted">لا يوجد حضور مرتبط بهذا المشروع.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -623,8 +484,9 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
 
 function ProjectForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
   const [desc, setDesc] = useState("");
-  const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState(todayStr);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -633,6 +495,7 @@ function ProjectForm({ onDone }: { onDone: () => void }) {
     setBusy(true);
     const { error } = await supabase.from("projects").insert({
       name: name.trim(),
+      address: address.trim() || null,
       description: desc.trim() || null,
       start_date: start,
       created_by: (await supabase.auth.getUser()).data.user?.id,
@@ -646,8 +509,12 @@ function ProjectForm({ onDone }: { onDone: () => void }) {
     <>
       {err && <div className="alert error">{err}</div>}
       <label className="field">
-        <span>اسم المشروع</span>
+        <span>اسم المشروع/الموقع</span>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>العنوان أو وصف الموقع (اختياري)</span>
+        <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
       </label>
       <label className="field">
         <span>وصف (اختياري)</span>

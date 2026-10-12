@@ -12,6 +12,7 @@ export default function MyStatement() {
   const [att, setAtt] = useState<Attendance[]>([]);
   const [wd, setWd] = useState<Withdrawal[]>([]);
   const [dd, setDd] = useState<Deduction[]>([]);
+  const [projectsByAttendance, setProjectsByAttendance] = useState<Record<string, string[]>>({});
   const [tab, setTab] = useState<"att" | "wd" | "dd">("att");
 
   useEffect(() => {
@@ -37,9 +38,25 @@ export default function MyStatement() {
           .order("created_at", { ascending: false })
           .limit(200),
       ]);
-      setAtt((a ?? []) as Attendance[]);
+      const attendanceRows = (a ?? []) as Attendance[];
+      setAtt(attendanceRows);
       setWd((w ?? []) as Withdrawal[]);
       setDd((d ?? []) as Deduction[]);
+      if (attendanceRows.length) {
+        const { data: links } = await supabase
+          .from("attendance_projects")
+          .select("attendance_id, project_id, project:projects(name)")
+          .in("attendance_id", attendanceRows.map((row) => row.id));
+        const byAttendance: Record<string, string[]> = {};
+        (links ?? []).forEach((link: any) => {
+          const names = byAttendance[link.attendance_id] ?? [];
+          if (link.project?.name) names.push(link.project.name);
+          byAttendance[link.attendance_id] = names;
+        });
+        setProjectsByAttendance(byAttendance);
+      } else {
+        setProjectsByAttendance({});
+      }
     })();
   }, [profile]);
 
@@ -104,16 +121,16 @@ export default function MyStatement() {
               <thead>
                 <tr>
                   <th>التاريخ</th>
-                  <th>المواقع</th>
-                  <th>اليومية</th>
+                  <th>المشاريع/المواقع</th>
+                  <th>اليومية (مرة واحدة)</th>
                 </tr>
               </thead>
               <tbody>
                 {att.map((a) => (
                   <tr key={a.id}>
                     <td className="num">{a.work_date}</td>
-                    <td className="muted small">—</td>
-                    <td className="num">{money(bal?.daily_wage ?? 0)}</td>
+                    <td className="muted small">{(projectsByAttendance[a.id] ?? []).join("، ") || "—"}</td>
+                    <td className="num">{money(a.daily_wage_snapshot ?? bal?.daily_wage ?? 0)}</td>
                   </tr>
                 ))}
                 {att.length === 0 && (

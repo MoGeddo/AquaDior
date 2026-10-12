@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { money } from "../../lib/calc";
 import type { Withdrawal, Profile } from "../../lib/types";
 
 type Tab = "pending" | "all" | "approved" | "rejected";
+const isoNow = () => new Date().toISOString();
 
 export default function Withdrawals() {
   const [rows, setRows] = useState<(Withdrawal & { worker?: Profile })[]>([]);
@@ -12,7 +13,7 @@ export default function Withdrawals() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     let query = supabase
       .from("withdrawals")
       .select("*, worker:profiles!withdrawals_worker_id_fkey(full_name, phone)")
@@ -25,11 +26,11 @@ export default function Withdrawals() {
     setRows(
       (data ?? []).map((r: any) => ({ ...r, worker: r.worker }))
     );
-  }
+  }, [tab]);
 
   useEffect(() => {
-    load();
-  }, [tab]);
+    void load();
+  }, [load]);
 
   const filtered = rows.filter(
     (r) =>
@@ -40,19 +41,33 @@ export default function Withdrawals() {
 
   async function decide(id: string, status: "approved" | "rejected") {
     setBusy(true);
-    const me = (await supabase.auth.getUser()).data.user?.id;
-    const { error } = await supabase
-      .from("withdrawals")
-      .update({
-        status,
-        decided_by: me,
-        decided_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-    setBusy(false);
-    if (error) return setMsg("خطأ: " + error.message);
-    setMsg(status === "approved" ? "تمت الموافقة ✅" : "تم الرفض ✅");
-    await load();
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth.user) throw new Error("انتهت الجلسة؛ سجّل الدخول مرة أخرى");
+      const { data, error } = await supabase
+        .from("withdrawals")
+        .update({
+          status,
+          decided_by: auth.user.id,
+          decided_at: isoNow(),
+        })
+        .eq("id", id)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setMsg("تم التعامل مع هذا الطلب من جلسة أخرى؛ أُعيد تحميل القائمة.");
+        await load();
+        return;
+      }
+      setMsg(status === "approved" ? "تمت الموافقة ✅" : "تم الرفض ✅");
+      await load();
+    } catch (error: any) {
+      setMsg("خطأ: " + (error?.message ?? "تعذر تحديث الطلب"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const pendingCount = rows.filter((r) => r.status === "pending").length;

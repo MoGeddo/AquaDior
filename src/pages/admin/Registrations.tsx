@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
-import type { Profile, Site, Project } from "../../lib/types";
+import type { Profile, Project } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 
 export default function Registrations() {
   const [rows, setRows] = useState<Profile[]>([]);
-  const [sites, setSites] = useState<Site[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [msg, setMsg] = useState("");
   const [approving, setApproving] = useState<Profile | null>(null);
@@ -13,17 +12,15 @@ export default function Registrations() {
   const [cardUrl, setCardUrl] = useState<string | null>(null);
 
   async function load() {
-    const [{ data }, { data: s }, { data: p }] = await Promise.all([
+    const [{ data }, { data: p }] = await Promise.all([
       supabase
         .from("profiles")
         .select("*")
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
-      supabase.from("sites").select("*").eq("is_active", true).order("name"),
       supabase.from("projects").select("*").eq("status", "active").order("name"),
     ]);
     setRows((data ?? []) as Profile[]);
-    setSites((s ?? []) as Site[]);
     setProjects((p ?? []) as Project[]);
   }
 
@@ -117,6 +114,8 @@ export default function Registrations() {
                       <button
                         className="btn btn-sm btn-success"
                         onClick={() => setApproving(p)}
+                        disabled={!DEMO_MODE && !p.id_card_url}
+                        title={!DEMO_MODE && !p.id_card_url ? "لا يمكن التفعيل قبل رفع صورة البطاقة" : undefined}
                       >
                         ✓ فعّل
                       </button>
@@ -143,7 +142,7 @@ export default function Registrations() {
         <div className="card-title">إزاي بيشتغل؟</div>
         <p className="small muted">
           العامل بيسجّل بنفسه (موبايل + اسم زي البطاقة + صورة البطاقة).
-          حسابك بيتفتح أول ما تضغط "فعّل" وتحدد اليومية والمواقع.
+          حسابه بيتفتح أول ما تضغط "فعّل" وتحدد اليومية والمشروع/الموقع الأول. يمكن إضافة مشاريع أخرى لاحقًا من تفاصيل العامل.
           لو رفضت، العامل بيوصلو إشعار بالسبب.
         </p>
       </div>
@@ -182,7 +181,6 @@ export default function Registrations() {
       {approving && (
         <ApproveModal
           worker={approving}
-          sites={sites}
           projects={projects}
           onClose={() => setApproving(null)}
           onDone={async () => {
@@ -198,19 +196,16 @@ export default function Registrations() {
 
 function ApproveModal({
   worker,
-  sites,
   projects,
   onClose,
   onDone,
 }: {
   worker: Profile;
-  sites: Site[];
   projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [wage, setWage] = useState("");
-  const [siteIds, setSiteIds] = useState<string[]>([]);
   const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -222,7 +217,6 @@ function ApproveModal({
     const { error } = await supabase.rpc("approve_worker", {
       p_worker_id: worker.id,
       p_daily_wage: Number(wage),
-      p_site_ids: siteIds.length ? siteIds : null,
       p_project_id: projectId || null,
     });
     setBusy(false);
@@ -233,6 +227,11 @@ function ApproveModal({
   return (
     <Modal title={`تفعيل ${worker.full_name}`} onClose={onClose}>
       {err && <div className="alert error">{err}</div>}
+      {!DEMO_MODE && !worker.id_card_url && (
+        <div className="alert error" role="alert">
+          لا يمكن التفعيل قبل رفع صورة البطاقة والتحقق منها.
+        </div>
+      )}
 
       <label className="field">
         <span>اليومية (جنيه)</span>
@@ -247,7 +246,7 @@ function ApproveModal({
       </label>
 
       <label className="field">
-        <span>المشروع</span>
+        <span>المشروع/الموقع الأول</span>
         <select
           className="input"
           value={projectId}
@@ -262,31 +261,8 @@ function ApproveModal({
         </select>
       </label>
 
-      <div className="field">
-        <span>المواقع اللي هيشتغل فيها</span>
-        <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
-          {sites.map((s) => {
-            const on = siteIds.includes(s.id);
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`btn btn-sm ${on ? "btn-primary" : ""}`}
-                onClick={() =>
-                  setSiteIds((p) =>
-                    on ? p.filter((x) => x !== s.id) : [...p, s.id]
-                  )
-                }
-              >
-                {on ? "✓ " : ""}
-                {s.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
-      <button className="btn btn-primary btn-block" onClick={approve} disabled={busy}>
+      <button className="btn btn-primary btn-block" onClick={approve} disabled={busy || (!DEMO_MODE && !worker.id_card_url)}>
         {busy ? "جاري التفعيل..." : "فعّل الحساب"}
       </button>
     </Modal>

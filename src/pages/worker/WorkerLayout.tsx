@@ -1,31 +1,98 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../store/auth";
 import { money } from "../../lib/calc";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import type { WorkerBalance } from "../../lib/types";
 import { AquaDiorShield } from "../../components/AquaDiorLogo";
+
+type AssignedProject = { id: string; name: string; status: "active" | "closed"; address: string | null };
+type WorkerOutletContext = {
+  bal: WorkerBalance | null;
+  reload: () => void;
+  loading: boolean;
+  loadError: string | null;
+  projects: AssignedProject[];
+  hasAssignedProjects: boolean;
+};
 
 export default function WorkerLayout() {
   const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const [bal, setBal] = useState<WorkerBalance | null>(null);
+  const [projects, setProjects] = useState<AssignedProject[]>([]);
+  const [hasAssignedProjects, setHasAssignedProjects] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!profile) return;
-    const { data } = await supabase
-      .from("worker_balances")
-      .select("*")
-      .eq("worker_id", profile.id)
-      .single();
-    if (data) setBal(data as WorkerBalance);
-  }
+    setLoading(true);
+    try {
+      const [
+        { data: balance, error: balanceError },
+        { data: assignments, error: assignmentError },
+      ] = await Promise.all([
+        supabase
+          .from("worker_balances")
+          .select("*")
+          .eq("worker_id", profile.id)
+          .maybeSingle(),
+        supabase
+          .from("worker_projects")
+          .select("project_id, project:projects(id, name, status, address)")
+          .eq("worker_id", profile.id),
+      ]);
+      const queryError = balanceError ?? assignmentError;
+      if (queryError) {
+        setLoadError(queryError.message ?? "تعذر تحميل بيانات الحساب");
+        return;
+      }
+
+      const rows = (assignments ?? []) as any[];
+      const activeProjects: AssignedProject[] = rows
+        .map((row) => row.project)
+        .filter((project: any) => project?.status === "active")
+        .map((project: any) => ({
+          id: project.id,
+          name: project.name,
+          status: project.status,
+          address: project.address ?? null,
+        }));
+      const allProjects: AssignedProject[] = rows
+        .map((row) => row.project)
+        .filter((project: any) => project)
+        .map((project: any) => ({
+          id: project.id,
+          name: project.name,
+          status: project.status,
+          address: project.address ?? null,
+        }));
+      setBal((balance as WorkerBalance | null) ?? null);
+      setProjects(activeProjects);
+      setHasAssignedProjects(allProjects.length > 0);
+      setLoadError(null);
+    } catch (error: any) {
+      setLoadError(error?.message ?? "تعذر تحميل بيانات الحساب");
+    } finally {
+      setLoading(false);
+    }
+  }, [profile]);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 20000);
-    return () => clearInterval(t);
-  }, [profile]);
+    void load();
+    const timer = window.setInterval(() => void load(), 20_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  const outletContext: WorkerOutletContext = {
+    bal,
+    reload: load,
+    loading,
+    loadError,
+    projects,
+    hasAssignedProjects,
+  };
 
   return (
     <>
@@ -35,7 +102,7 @@ export default function WorkerLayout() {
           <div>
             <h1>أهلاً {profile?.full_name?.split(" ")[0]} 👋</h1>
             <div className="sub">
-              رصيدك: <b style={{ color: "var(--gold-300)" }}>{money(bal?.balance ?? 0)}</b>
+              رصيدك العام: <b style={{ color: "var(--gold-300)" }}>{money(bal?.balance ?? 0)}</b>
             </div>
           </div>
         </div>
@@ -51,7 +118,13 @@ export default function WorkerLayout() {
       </div>
 
       <div className="page has-bottom-nav">
-        <Outlet context={{ bal, reload: load }} />
+        {loadError && (
+          <div className="alert error" role="alert">
+            تعذر تحميل الرصيد العام أو تعيينات المشاريع: {loadError}{" "}
+            <button className="btn btn-sm" onClick={() => void load()}>إعادة المحاولة</button>
+          </div>
+        )}
+        <Outlet context={outletContext} />
       </div>
 
       <nav className="bottom-nav">
@@ -71,3 +144,5 @@ export default function WorkerLayout() {
     </>
   );
 }
+
+export type { AssignedProject, WorkerOutletContext };

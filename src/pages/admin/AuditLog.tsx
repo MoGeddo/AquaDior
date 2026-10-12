@@ -81,7 +81,7 @@ export default function AuditLog() {
     }
     if (t === "sites") {
       const v = log.new_data ?? log.old_data;
-      return `${nm} — ${LABELS[log.action]} موقع ${v?.name}`;
+      return `${nm} — ${LABELS[log.action]} موقع قديم ${v?.name}`;
     }
     if (t === "projects") {
       const v = log.new_data ?? log.old_data;

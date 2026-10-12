@@ -1,53 +1,56 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { money } from "../../lib/calc";
-import type { Settlement, Project, Profile } from "../../lib/types";
+import type { Settlement, Profile } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 
+const isoNow = () => new Date().toISOString();
+
 export default function Settlements() {
-  const [projects, setProjects] = useState<Project[]>([]);
   const [rows, setRows] = useState<(Settlement & { worker?: Profile })[]>([]);
-  const [projectId, setProjectId] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<(Settlement & { worker?: Profile }) | null>(null);
 
-  async function load() {
-    const { data: p } = await supabase
-      .from("projects")
-      .select("*")
-      .order("created_at", { ascending: false });
-    setProjects((p ?? []) as Project[]);
-
-    let query = supabase
+  const load = useCallback(async () => {
+    const { data } = await supabase
       .from("settlements")
       .select("*, worker:profiles!settlements_worker_id_fkey(full_name, phone)")
+      .is("project_id", null)
       .order("created_at", { ascending: false });
-
-    if (projectId) query = query.eq("project_id", projectId);
-
-    const { data } = await query;
     setRows((data ?? []).map((r: any) => ({ ...r, worker: r.worker })));
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, [projectId]);
+    void load();
+  }, [load]);
 
   async function markPaid(s: Settlement) {
     setBusy(true);
-    const { error } = await supabase
-      .from("settlements")
-      .update({
-        status: "paid",
-        paid_at: new Date().toISOString(),
-        worker_ack_at: new Date().toISOString(),
-      })
-      .eq("id", s.id);
-    setBusy(false);
-    if (error) return setMsg("خطأ: " + error.message);
-    setMsg("تم تأكيد الصرف ✅");
-    await load();
+    try {
+      const { data, error } = await supabase
+        .from("settlements")
+        .update({
+          status: "paid",
+          paid_at: isoNow(),
+        })
+        .eq("id", s.id)
+        .eq("status", s.status)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setMsg("تم تحديث هذه التسوية من جلسة أخرى؛ أُعيد تحميل القائمة.");
+        await load();
+        return;
+      }
+      setMsg("تم تأكيد الصرف ✅");
+      await load();
+    } catch (error: any) {
+      setMsg("خطأ: " + (error?.message ?? "تعذر تحديث التسوية"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const totals = rows.reduce(
@@ -63,26 +66,10 @@ export default function Settlements() {
   return (
     <>
       <div className="flex-between mb" style={{ flexWrap: "wrap" }}>
-        <label className="field" style={{ margin: 0, minWidth: 220 }}>
-          <span>المشروع</span>
-          <select
-            className="input"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="">كل المشاريع</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} {p.status === "closed" ? "(مقفول)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex">
-          <span className="badge green">
-            المطلوب صرفه: {money(totals.net)}
-          </span>
+        <div className="alert info" style={{ margin: 0 }}>
+          التسويات هنا عامة للعامل؛ إغلاق المشروع لا ينشئ تسوية ولا يكرر الرصيد.
         </div>
+        <span className="badge green">إجمالي التسويات المسجلة: {money(totals.net)}</span>
       </div>
 
       {msg && <div className="alert success">{msg}</div>}
@@ -108,10 +95,8 @@ export default function Settlements() {
 
       <div className="card">
         <div className="card-title">
-          <span>كشوف التسوية</span>
-          <span className="small muted">
-            التسويات بتتولّد أوتوماتيك لما تقفل المشروع
-          </span>
+          <span>كشوف التسوية العامة</span>
+          <span className="small muted">يُعرض هنا فقط ما سُجّل دون مشروع</span>
         </div>
         <div className="table-wrap">
           <table>
@@ -172,7 +157,7 @@ export default function Settlements() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="center muted">
-                    مفيش تسويات — اقفل مشروع الأول من صفحة المشاريع
+                    لا توجد تسويات عامة مسجلة.
                   </td>
                 </tr>
               )}
