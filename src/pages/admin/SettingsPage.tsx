@@ -1,65 +1,32 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import type { AppSettings } from "../../lib/types";
-import { DEFAULT_SETTINGS } from "../../lib/types";
 import { useAuth } from "../../store/auth";
 import ExternalPushSettings from "../../components/ExternalPushSettings";
 
 export default function SettingsPage() {
   const { profile } = useAuth();
-  const [app, setApp] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [tgChat, setTgChat] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const { data, error } = await supabase.from("settings").select("*");
+    const { data, error } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "telegram")
+      .maybeSingle();
     if (error) {
-      setErr(`تعذر تحميل الإعدادات: ${error.message}`);
+      setErr(`تعذر تحميل إعدادات تليجرام: ${error.message}`);
       return;
     }
-    (data ?? []).forEach((r: any) => {
-      if (r.key === "app") setApp({ ...DEFAULT_SETTINGS, ...r.value, gps_enabled: false });
-      if (r.key === "telegram") setTgChat(r.value?.chat_id ?? "");
-    });
+    const telegramSettings = data?.value as Record<string, unknown> | null;
+    setTgChat(typeof telegramSettings?.chat_id === "string" ? telegramSettings.chat_id : "");
   }
 
   useEffect(() => {
     load();
   }, []);
-
-  async function saveApp() {
-    setErr("");
-    setMsg("");
-    const limit = Number(app.auto_approve_limit);
-    if (!Number.isFinite(limit) || limit < 0 || limit >= 100000000) {
-      setErr("سقف الموافقة يجب أن يكون بين صفر و 99,999,999.99");
-      return;
-    }
-    if (typeof app.currency !== "string" || app.currency.trim().length > 20) {
-      setErr("رمز العملة طويل جدًا أو غير صحيح");
-      return;
-    }
-    setBusy(true);
-    try {
-      const { error } = await supabase.from("settings").upsert(
-        {
-          key: "app",
-          value: { ...app, gps_enabled: false, auto_approve_limit: limit, currency: app.currency.trim() || "ج.م" },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "key" }
-      );
-      if (error) throw error;
-      setApp((current) => ({ ...current, gps_enabled: false, auto_approve_limit: limit, currency: current.currency.trim() || "ج.م" }));
-      setMsg("تم حفظ الإعدادات ✅");
-    } catch (error: any) {
-      setErr(error?.message ?? "تعذر حفظ الإعدادات");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function saveTg() {
     setErr("");
@@ -107,46 +74,8 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="card">
-        <div className="card-title">الإعدادات العامة</div>
-        {err && <div className="alert error">{err}</div>}
-        {msg && <div className="alert success">{msg}</div>}
-
-        <div className="grid-2">
-          <label className="field">
-            <span>سقف الأخذ التلقائي (جنيه)</span>
-            <input
-              className="input"
-              inputMode="decimal"
-              value={app.auto_approve_limit}
-              onChange={(e) =>
-                setApp({ ...app, auto_approve_limit: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span>عملة إشعارات وتقارير تليجرام</span>
-            <input
-              className="input"
-              maxLength={20}
-              value={app.currency}
-              onChange={(e) => setApp({ ...app, currency: e.target.value })}
-            />
-          </label>
-        </div>
-
-        <p className="small muted mb">
-          تسجيل الحضور لا يطلب موقع الجهاز ولا يحفظ إحداثيات GPS؛ اختيار المشروع/الموقع يظل لتوثيق مكان العمل. أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده. رمز العملة يخص رسائل تليجرام فقط؛ عرض المبالغ داخل التطبيق بالجنيه المصري.
-        </p>
-        <div className="alert info mb">
-          خصم الغياب الآلي وموعد قفل اليوم غير مفعّلين في هذه النسخة؛ الحضور لا يُخصم تلقائيًا بسبب الغياب.
-        </div>
-
-        <button className="btn btn-primary" onClick={saveApp} disabled={busy}>
-          حفظ الإعدادات
-        </button>
-      </div>
-
+      {err && <div className="alert error">{err}</div>}
+      {msg && <div className="alert success">{msg}</div>}
       {profile && <ExternalPushSettings userId={profile.id} />}
 
       <div className="card">
