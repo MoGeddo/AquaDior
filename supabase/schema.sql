@@ -229,8 +229,16 @@ create table if not exists public.deductions (
   amount     numeric(10,2) not null check (amount > 0),
   reason     text not null,
   created_by uuid references public.profiles(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  voided_at  timestamptz,
+  voided_by  uuid references public.profiles(id),
+  void_reason text
 );
+alter table public.deductions add column if not exists voided_at timestamptz;
+alter table public.deductions add column if not exists voided_by uuid references public.profiles(id);
+alter table public.deductions add column if not exists void_reason text;
+create index if not exists idx_deductions_worker_active
+  on public.deductions(worker_id, created_at desc) where voided_at is null;
 do $$ begin
   if not exists (
     select 1 from pg_constraint
@@ -246,7 +254,7 @@ end $$;
 create table if not exists public.settlements (
   id               uuid primary key default gen_random_uuid(),
   worker_id        uuid not null references public.profiles(id) on delete restrict,
-  project_id       uuid not null references public.projects(id) on delete restrict,
+  project_id       uuid references public.projects(id) on delete restrict,
   days_worked      int not null default 0 check (days_worked >= 0),
   daily_wage       numeric(10,2) not null default 0 check (daily_wage >= 0),
   total_earned     numeric(10,2) not null default 0,
@@ -257,9 +265,13 @@ create table if not exists public.settlements (
   worker_ack_at    timestamptz,
   confirmed_by     uuid references public.profiles(id),
   paid_at          timestamptz,
+  client_request_id uuid,
   created_at       timestamptz not null default now(),
   unique (worker_id, project_id)
 );
+alter table public.settlements add column if not exists client_request_id uuid;
+create unique index if not exists idx_settlements_client_request
+  on public.settlements(client_request_id) where client_request_id is not null;
 
 -- ---------- 11. AUDIT_LOG ----------
 create table if not exists public.audit_log (
@@ -332,9 +344,10 @@ select
   coalesce(w.approved, 0) as withdrawn_approved,
   coalesce(w.pending, 0) as withdrawn_pending,
   coalesce(d.deducted, 0) as deducted,
-  coalesce(e.earned, 0) - coalesce(w.approved, 0) - coalesce(d.deducted, 0) as balance,
+  coalesce(e.earned, 0) - coalesce(w.approved, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as balance,
   coalesce(e.earned, 0) - coalesce(w.approved, 0)
-    - coalesce(w.pending, 0) - coalesce(d.deducted, 0) as available
+    - coalesce(w.pending, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as available,
+  coalesce(st.paid, 0) as settled_paid
 from public.profiles p
 left join (
   select worker_id, count(*) as days_worked, sum(wage) as earned
@@ -351,8 +364,15 @@ left join (
 left join (
   select worker_id, sum(amount) as deducted
   from public.deductions
+  where voided_at is null
   group by worker_id
 ) d on d.worker_id = p.id
+left join (
+  select worker_id, sum(net_amount) as paid
+  from public.settlements
+  where project_id is null and status = 'paid'
+  group by worker_id
+) st on st.worker_id = p.id
 where p.role = 'worker';
 
 -- Project-scoped financial balances are intentionally not exposed. A worker's

@@ -58,7 +58,8 @@ export default function ProjectAddModal({
         {available.map((project) => (
           <button
             key={project.id}
-            className="btn btn-sm"
+            className="btn worker-project-choice"
+            aria-label={`إضافة ${project.name} إلى حضور اليوم`}
             disabled={busyId !== null}
             onClick={() => void add(project.id)}
           >

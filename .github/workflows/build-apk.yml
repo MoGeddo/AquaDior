@@ -216,6 +216,7 @@ jobs:
           retention-days: 30
 
       - name: 📦 نشره على صفحة Releases
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest

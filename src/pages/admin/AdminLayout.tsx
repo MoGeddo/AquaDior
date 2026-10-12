@@ -11,6 +11,7 @@ const LINKS = [
   { to: "/admin/workers", label: "👷 العمال" },
   { to: "/admin/projects", label: "🏗️ المشاريع/المواقع" },
   { to: "/admin/withdrawals", label: "💵 الفلوس" },
+  { to: "/admin/deductions", label: "📉 الخصومات" },
   { to: "/admin/settlements", label: "🧾 التسويات" },
   { to: "/admin/audit", label: "🛡️ سجل التعديلات" },
   { to: "/admin/settings", label: "⚙️ الإعدادات" },

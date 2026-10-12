@@ -6,9 +6,9 @@ export function money(n: number, currency = "ج.م"): string {
   })} ${currency}`;
 }
 
-/** المعادلة الأساسية: استحقاق − مسحوب − خصومات */
+/** الرصيد العام: الاستحقاق − السحوبات − الخصومات − التسويات المصروفة */
 export function netAmount(b: WorkerBalance): number {
-  return (b.earned || 0) - (b.withdrawn_approved || 0) - (b.deducted || 0);
+  return (b.earned || 0) - (b.withdrawn_approved || 0) - (b.deducted || 0) - (b.settled_paid || 0);
 }
 
 /** اللي يقدر ياخده دلوقتي (بنستقعد المعلّق كمان) */
@@ -17,7 +17,8 @@ export function availableNow(b: WorkerBalance): number {
     (b.earned || 0) -
     (b.withdrawn_approved || 0) -
     (b.withdrawn_pending || 0) -
-    (b.deducted || 0)
+    (b.deducted || 0) -
+    (b.settled_paid || 0)
   );
 }
 

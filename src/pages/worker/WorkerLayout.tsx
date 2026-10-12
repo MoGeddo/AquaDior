@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import type { WorkerBalance } from "../../lib/types";
 import { AquaDiorShield } from "../../components/AquaDiorLogo";
+import NotificationCenter from "../../components/NotificationCenter";
 
 type AssignedProject = { id: string; name: string; status: "active" | "closed"; address: string | null };
 type WorkerOutletContext = {
@@ -24,6 +25,8 @@ export default function WorkerLayout() {
   const [hasAssignedProjects, setHasAssignedProjects] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const load = useCallback(async () => {
     if (!profile) return;
@@ -79,6 +82,30 @@ export default function WorkerLayout() {
     }
   }, [profile]);
 
+  const loadUnreadNotifications = useCallback(async () => {
+    if (!profile) return;
+    const { count, error } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false);
+    if (!error) setUnreadNotifications(count ?? 0);
+  }, [profile]);
+
+  useEffect(() => {
+    void loadUnreadNotifications();
+    const timer = window.setInterval(() => void loadUnreadNotifications(), 15000);
+    return () => window.clearInterval(timer);
+  }, [loadUnreadNotifications]);
+
+  const handleUnreadChange = useCallback((change: number | "refresh") => {
+    if (change === "refresh") {
+      void loadUnreadNotifications();
+    } else {
+      setUnreadNotifications((current) => Math.max(0, current + change));
+    }
+  }, [loadUnreadNotifications]);
+
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => void load(), 20_000);
@@ -97,24 +124,35 @@ export default function WorkerLayout() {
   return (
     <>
       <div className="topbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div className="worker-topbar-heading" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <AquaDiorShield size={34} />
-          <div>
+          <div style={{ minWidth: 0 }}>
             <h1>أهلاً {profile?.full_name?.split(" ")[0]} 👋</h1>
             <div className="sub">
               رصيدك العام: <b style={{ color: "var(--gold-300)" }}>{money(bal?.balance ?? 0)}</b>
             </div>
           </div>
         </div>
-        <button
-          className="btn btn-sm btn-ghost"
-          onClick={async () => {
-            await signOut();
-            nav("/login", { replace: true });
-          }}
-        >
-          خروج
-        </button>
+        <div className="worker-topbar-actions">
+          <button
+            className="btn btn-sm btn-ghost worker-notification-trigger"
+            aria-label={unreadNotifications ? `الإشعارات، ${unreadNotifications} غير مقروء` : "الإشعارات"}
+            title="الإشعارات"
+            onClick={() => setShowNotifications(true)}
+          >
+            <span aria-hidden="true">🔔</span>
+            {unreadNotifications > 0 && <span className="badge red notification-count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
+          </button>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={async () => {
+              await signOut();
+              nav("/login", { replace: true });
+            }}
+          >
+            خروج
+          </button>
+        </div>
       </div>
 
       <div className="page has-bottom-nav">
@@ -141,6 +179,14 @@ export default function WorkerLayout() {
           <span>كشفي</span>
         </NavLink>
       </nav>
+      {showNotifications && profile && (
+        <NotificationCenter
+          userId={profile.id}
+          unreadCount={unreadNotifications}
+          onClose={() => setShowNotifications(false)}
+          onUnreadChange={handleUnreadChange}
+        />
+      )}
     </>
   );
 }

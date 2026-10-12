@@ -302,6 +302,10 @@ html.capacitor-android .topbar {
   color: var(--gold-300);
   margin-top: 1px;
 }
+.worker-topbar-heading h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worker-topbar-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.worker-topbar-actions .worker-notification-trigger { position: relative; width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 18px; color: var(--gold-300); }
+.notification-count { position: absolute; top: -3px; inset-inline-end: -5px; min-width: 19px; height: 19px; padding: 0 4px; display: grid; place-items: center; border: 1px solid var(--ink-900); border-radius: var(--r-full); font-size: 10px; line-height: 1; }
 
 .role-chip {
   background: rgba(212, 175, 55, 0.16);
@@ -338,6 +342,47 @@ html.capacitor-android .topbar {
   justify-content: space-between;
   gap: var(--sp-2);
 }
+
+.notification-list { display: grid; gap: 8px; }
+.notification-item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-md);
+  background: var(--card);
+}
+.notification-item.is-unread {
+  background: var(--gold-50);
+  border-color: rgba(197, 160, 89, 0.45);
+  box-shadow: inset -3px 0 0 var(--gold-500);
+}
+.notification-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  font-size: 19px;
+}
+.notification-content { min-width: 0; }
+.notification-title { font-weight: 800; line-height: 1.5; }
+.notification-body { color: var(--ink-600); line-height: 1.65; margin: 2px 0 5px; overflow-wrap: anywhere; }
+.notification-read { min-width: 44px; min-height: 44px; }
+.modal-close { width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; }
+.worker-project-choice { min-height: 48px; padding-inline: 15px; }
+.worker-project-choices { gap: 8px; }
+.deduction-list { padding-block: 6px; }
+.deduction-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 14px; padding: 14px 4px; border-bottom: 1px solid var(--ink-200); }
+.deduction-row:last-child { border-bottom: 0; }
+.deduction-main { min-width: 0; }
+.deduction-worker { font-weight: 800; overflow-wrap: anywhere; }
+.deduction-amount { color: var(--red-600); font-weight: 800; white-space: nowrap; }
+.deduction-reason { grid-column: 1 / -1; line-height: 1.65; overflow-wrap: anywhere; }
+.deduction-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
 
 /* ============================================================
    الأزرار

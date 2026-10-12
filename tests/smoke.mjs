@@ -194,6 +194,7 @@ const ADMIN_ROUTES = [
   ["/admin/registrations", "طلبات التسجيل"],
   ["/admin/attendance", "الحضور"],
   ["/admin/withdrawals", "الفلوس"],
+  ["/admin/deductions", "الخصومات"],
   ["/admin/projects", "المشاريع"],
   ["/admin/settlements", "التسويات"],
   ["/admin/audit", "سجل التعديلات"],
@@ -273,6 +274,24 @@ if (outBtn) {
 await login("worker01", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "الدخول كعامل", timeout: 12000 });
 check("👷 العامل دخل → شاشة العمال", true);
+
+const workerNotificationsButton = $('button[aria-label^="الإشعارات"]');
+check("زر مركز إشعارات العامل ظاهر", !!workerNotificationsButton);
+if (workerNotificationsButton) {
+  click(workerNotificationsButton);
+  await waitFor(() => /تم تعيينك على مشروع/.test(text()), { label: "عرض إشعار تعيين المشروع للعامل" });
+  check("العامل يرى إشعار تعيين مشروعه داخل التطبيق", /مشروع اختبار آلي/.test(text()));
+  const markNotificationRead = $('[aria-label^="تعليم"]');
+  if (markNotificationRead) {
+    click(markNotificationRead);
+    await waitFor(() => /كل الإشعارات مقروءة/.test(text()), { label: "تعليم إشعار العامل كمقروء" });
+    check("العامل يستطيع تعليم الإشعار كمقروء", true);
+  } else {
+    check("العامل يستطيع تعليم الإشعار كمقروء", false, "زر تعليم كمقروء غير ظاهر");
+  }
+  const closeNotificationCenter = buttonByText(/^✕$/);
+  if (closeNotificationCenter) click(closeNotificationCenter);
+}
 
 await sleep(700);
 const homeBefore = text();
@@ -420,6 +439,149 @@ if (attendedProjectDeleteButton) {
 } else {
   check("الحذف يرفض مشروعًا مرتبطًا بحضور ويحفظه", false, "لم يظهر صف المشروع للاختبار");
 }
+
+// ---- 10) الخصم: قيد إداري، سجل مراجعة، وإشعار للعامل ----
+setPath("/admin/workers");
+await waitFor(() => window.location.pathname === "/admin/workers" && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "العامل لإضافة خصم آلي" });
+const deductionWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const detailsButton = [...(deductionWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /تفاصيل/.test(button.textContent || ""));
+if (detailsButton) {
+  click(detailsButton);
+  await waitFor(() => $('[role="dialog"]') && /المشاريع\/المواقع المعيّنة/.test(text()), { label: "فتح تفاصيل العامل" });
+  const deductionTab = [...($('[role="dialog"]')?.querySelectorAll("button") ?? [])].find((button) => /^خصم$/.test(button.textContent || ""));
+  if (deductionTab) {
+    click(deductionTab);
+    await waitFor(() => $('[role="dialog"] .input-big'), { label: "حقول الخصم" });
+    const modal = $('[role="dialog"]');
+    const amountInput = modal?.querySelector(".input-big");
+    const reasonInput = [...(modal?.querySelectorAll("input") ?? [])].find((input) => input !== amountInput);
+    if (amountInput && reasonInput) {
+      setValue(amountInput, "25");
+      setValue(reasonInput, "خصم اختبار آلي");
+      click([...modal.querySelectorAll("button")].find((button) => /تأكيد تسجيل الخصم/.test(button.textContent || "")));
+      await waitFor(() => !$('[role="dialog"]'), { label: "حفظ خصم العامل" });
+      check("الإدارة تسجل الخصم من تفاصيل العامل بعد تأكيد", true);
+    } else check("الإدارة تسجل الخصم من تفاصيل العامل بعد تأكيد", false, "حقول الخصم غير ظاهرة");
+  } else check("الإدارة تسجل الخصم من تفاصيل العامل بعد تأكيد", false, "تبويب الخصم غير ظاهر");
+} else check("الإدارة تسجل الخصم من تفاصيل العامل بعد تأكيد", false, "زر تفاصيل العامل غير ظاهر");
+
+setPath("/admin/deductions");
+await waitFor(() => window.location.pathname === "/admin/deductions" && /سجل الخصومات/.test(text()), { label: "سجل خصومات الإدارة" });
+check("سجل الخصومات يعرض العامل والسبب والمبلغ", /خصم اختبار آلي/.test(text()) && /عامل اختبار آلي/.test(text()));
+
+const reverseButton = buttonByText(/إلغاء\/تصحيح الخصم/);
+if (reverseButton) {
+  click(reverseButton);
+  await waitFor(() => $('[role="dialog"]') && /سيُعاد مبلغ/.test(text()), { label: "تأكيد إلغاء الخصم" });
+  const reverseReason = $('[aria-label="سبب إلغاء الخصم"]');
+  if (reverseReason) {
+    setValue(reverseReason, "تصحيح قيد اختبار آلي");
+    click(buttonByText(/تأكيد الإلغاء/));
+    await waitFor(() => /تم إلغاء خصم/.test(text()) && /ملغي/.test(text()), { label: "حفظ تصحيح الخصم" });
+    check("تصحيح الخصم يحفظ القيد كملغي مع السبب بدل حذفه", /تصحيح قيد اختبار آلي/.test(text()));
+  } else check("تصحيح الخصم يحفظ القيد كملغي مع السبب بدل حذفه", false, "حقل سبب الإلغاء غير ظاهر");
+} else check("تصحيح الخصم يحفظ القيد كملغي مع السبب بدل حذفه", false, "زر الإلغاء غير ظاهر");
+
+// Add the correct entry after reversing the intentionally mistaken one; the
+// worker's final payable balance must still be 350 - 100 - 25 = 225.
+setPath("/admin/workers");
+await waitFor(() => window.location.pathname === "/admin/workers" && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "إعادة تسجيل الخصم الصحيح" });
+const correctedWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const correctedDetails = [...(correctedWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /تفاصيل/.test(button.textContent || ""));
+if (correctedDetails) {
+  click(correctedDetails);
+  await waitFor(() => $('[role="dialog"]') && /المشاريع\/المواقع المعيّنة/.test(text()), { label: "إعادة فتح تفاصيل العامل" });
+  const correctedDeductionTab = [...($('[role="dialog"]')?.querySelectorAll("button") ?? [])].find((button) => /^خصم$/.test(button.textContent || ""));
+  if (correctedDeductionTab) {
+    click(correctedDeductionTab);
+    await waitFor(() => $('[role="dialog"] .input-big'), { label: "حقول الخصم الصحيح" });
+    const modal = $('[role="dialog"]');
+    const amountInput = modal?.querySelector(".input-big");
+    const reasonInput = [...(modal?.querySelectorAll("input") ?? [])].find((input) => input !== amountInput);
+    if (amountInput && reasonInput) {
+      setValue(amountInput, "25");
+      setValue(reasonInput, "خصم صحيح بعد التصحيح");
+      click([...modal.querySelectorAll("button")].find((button) => /تأكيد تسجيل الخصم/.test(button.textContent || "")));
+      await waitFor(() => !$('[role="dialog"]'), { label: "حفظ الخصم الصحيح" });
+      check("الإدارة تسجّل القيد الصحيح الجديد منفصلًا", true);
+    } else check("الإدارة تسجّل القيد الصحيح الجديد منفصلًا", false, "حقول الخصم غير ظاهرة");
+  } else check("الإدارة تسجّل القيد الصحيح الجديد منفصلًا", false, "تبويب الخصم غير ظاهر");
+} else check("الإدارة تسجّل القيد الصحيح الجديد منفصلًا", false, "زر تفاصيل العامل غير ظاهر");
+
+setPath("/admin/deductions");
+await waitFor(() => /خصم صحيح بعد التصحيح/.test(text()) && /ملغي/.test(text()), { label: "مراجعة الخصم المصحح" });
+check("سجل الإدارة يحتفظ بالخصم الملغي والجديد", /خصم اختبار آلي/.test(text()) && /خصم صحيح بعد التصحيح/.test(text()));
+
+const developerOutForDeduction = buttonByText(/^خروج$/);
+if (developerOutForDeduction) {
+  click(developerOutForDeduction);
+  await waitFor(() => window.location.pathname === "/login", { label: "خروج المطوّر بعد تسجيل الخصم" });
+}
+await login("worker01", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "العامل يراجع الخصم" });
+const workerBellForDeduction = $('button[aria-label^="الإشعارات"]');
+if (workerBellForDeduction) {
+  click(workerBellForDeduction);
+  await waitFor(() => /تم تسجيل خصم على حسابك/.test(text()) && /تم إلغاء خصم من حسابك/.test(text()) && /خصم صحيح بعد التصحيح/.test(text()), { label: "إشعارات الخصم والتصحيح للعامل" });
+  const deductionArticle = $$(".notification-item").find((article) => article.textContent?.includes("خصم صحيح بعد التصحيح"));
+  const reversalArticle = $$(".notification-item").find((article) => article.textContent?.includes("تم إلغاء خصم من حسابك"));
+  check("العامل يستقبل إشعار الخصم الصحيح والتصحيح مع المبلغ والسبب", !!deductionArticle && /25/.test(deductionArticle.textContent || "") && !!reversalArticle && /تصحيح قيد اختبار آلي/.test(reversalArticle.textContent || ""));
+  const readButton = deductionArticle?.querySelector(".notification-read");
+  if (readButton) {
+    click(readButton);
+    await waitFor(() => !deductionArticle?.querySelector(".notification-read"), { label: "تعليم إشعار الخصم كمقروء" });
+  }
+  const closeBell = buttonByText(/^✕$/);
+  if (closeBell) click(closeBell);
+}
+setPath("/worker/statement");
+await waitFor(() => window.location.pathname === "/worker/statement" && /خصومات/.test(text()), { label: "كشف العامل بعد الخصم" });
+click(buttonByText(/خصومات/));
+await waitFor(() => /خصم اختبار آلي/.test(text()) && /خصم صحيح بعد التصحيح/.test(text()) && /ملغي/.test(text()), { label: "ظهور الخصم والتصحيح في كشف العامل" });
+check("كشف العامل يحفظ الخصم الملغي وسبب التصحيح ويعرض القيد الصحيح", /تصحيح قيد اختبار آلي/.test(text()) && /خصم صحيح بعد التصحيح/.test(text()));
+
+const workerOutAfterDeduction = buttonByText(/^خروج$/);
+if (workerOutAfterDeduction) {
+  click(workerOutAfterDeduction);
+  await waitFor(() => window.location.pathname === "/login", { label: "خروج العامل بعد مراجعة الخصم" });
+}
+await login("mostafageddo", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "عودة المطوّر للتسوية" });
+setPath("/admin/settlements");
+await waitFor(() => window.location.pathname === "/admin/settlements" && /صرف كامل الرصيد/.test(text()), { label: "إظهار الرصيد القابل للتسوية" });
+const settleButton = buttonByText(/تسجيل صرف الرصيد/);
+const formattedSettlementAmount = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(225);
+if (settleButton) {
+  click(settleButton);
+  await waitFor(() => /تم تسجيل وصرف/.test(text()) && /اتصرف/.test(text()), { label: "صرف الرصيد العام ذريًا" });
+  check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", text().includes(formattedSettlementAmount) && /اتصرف/.test(text()));
+} else check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", false, "زر التسوية غير ظاهر");
+setPath("/admin/workers");
+await waitFor(() => window.location.pathname === "/admin/workers" && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "تحديث رصيد العامل بعد التسوية" });
+const settledWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const formattedZeroBalance = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(0);
+check("صرف التسوية يخفض الرصيد العام للعامل إلى صفر", settledWorkerRow?.querySelectorAll("td")[8]?.textContent?.includes(formattedZeroBalance));
+
+const developerOutAfterSettlement = buttonByText(/^خروج$/);
+if (developerOutAfterSettlement) {
+  click(developerOutAfterSettlement);
+  await waitFor(() => window.location.pathname === "/login", { label: "خروج المطوّر بعد التسوية" });
+}
+await login("worker01", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "العامل يراجع التسوية" });
+const workerBellAfterSettlement = $('button[aria-label^="الإشعارات"]');
+if (workerBellAfterSettlement) {
+  click(workerBellAfterSettlement);
+  await waitFor(() => /تم تسجيل صرف مستحقاتك/.test(text()), { label: "إشعار التسوية للعامل" });
+  check("العامل يتلقى إشعارًا بعد التسوية", /225/.test(text()));
+  const closeBellAfterSettlement = buttonByText(/^✕$/);
+  if (closeBellAfterSettlement) click(closeBellAfterSettlement);
+}
+setPath("/worker/statement");
+await waitFor(() => window.location.pathname === "/worker/statement" && buttonByText(/تسويات/), { label: "كشف العامل بعد التسوية" });
+click(buttonByText(/تسويات/));
+await waitFor(() => /اتصرف/.test(text()), { label: "كشف التسويات للعامل" });
+  check("كشف العامل يعرض التسوية المصروفة", text().includes(formattedSettlementAmount) && /اتصرف/.test(text()));
 
 // ============================================================
 console.log("\n" + "=".repeat(64));

@@ -98,6 +98,16 @@ if (import.meta.env.VITE_SMOKE_TEST === "1") {
       joined_at: new Date().toISOString(),
     }
   );
+  demoDB.notifications.push({
+    id: "smoke-notification-assignment",
+    user_id: "smoke-worker-1",
+    type: "project_assigned",
+    title: "تم تعيينك على مشروع",
+    body: "تمت إضافتك إلى مشروع اختبار آلي",
+    data: { project_id: "smoke-project-1" },
+    is_read: false,
+    created_at: new Date().toISOString(),
+  });
 }
 
 // ============ VIEWS ============
@@ -113,7 +123,8 @@ export function workerBalances(): any[] {
       const wd = demoDB.withdrawals.filter((w: any) => w.worker_id === p.id);
       const approved = wd.filter((w: any) => w.status === "approved").reduce((s: number, w: any) => s + w.amount, 0);
       const pending = wd.filter((w: any) => w.status === "pending").reduce((s: number, w: any) => s + w.amount, 0);
-      const deducted = demoDB.deductions.filter((d: any) => d.worker_id === p.id).reduce((s: number, d: any) => s + d.amount, 0);
+      const deducted = demoDB.deductions.filter((d: any) => d.worker_id === p.id && !d.voided_at).reduce((s: number, d: any) => s + d.amount, 0);
+      const settledPaid = demoDB.settlements.filter((settlement: any) => settlement.worker_id === p.id && settlement.project_id == null && settlement.status === "paid").reduce((sum: number, settlement: any) => sum + Number(settlement.net_amount || 0), 0);
       return {
         worker_id: p.id,
         full_name: p.full_name,
@@ -126,8 +137,9 @@ export function workerBalances(): any[] {
         withdrawn_approved: approved,
         withdrawn_pending: pending,
         deducted,
-        balance: earned - approved - deducted,
-        available: earned - approved - pending - deducted,
+        balance: earned - approved - deducted - settledPaid,
+        available: earned - approved - pending - deducted - settledPaid,
+        settled_paid: settledPaid,
       };
     });
 }
@@ -283,11 +295,13 @@ function build(table: string) {
     filters: [string, any][];
     order: [string, "asc" | "desc"] | null;
     limit: number | null;
+    range: [number, number] | null;
     select: string | null;
   } = {
     filters: [],
     order: null,
     limit: null,
+    range: null,
     select: null,
   };
 
@@ -301,7 +315,8 @@ function build(table: string) {
   const result = () => {
     let rs = rows(table).filter((r) => matchRow(r, state.filters));
     if (state.order) rs = sortRows(rs, state.order[0], state.order[1]);
-    if (state.limit) rs = rs.slice(0, state.limit);
+    if (state.range) rs = rs.slice(state.range[0], state.range[1] + 1);
+    else if (state.limit) rs = rs.slice(0, state.limit);
     if (state.select) rs = rs.map((r) => expandRelations(r, state.select as string));
     return rs;
   };
@@ -411,6 +426,10 @@ function build(table: string) {
       state.limit = n;
       return q;
     },
+    range: (from: number, to: number) => {
+      state.range = [Math.max(0, from), Math.max(from - 1, to)];
+      return q;
+    },
     single: async () => {
       const rs = exec().data as any[];
       return { data: rs[0] ?? null, error: rs.length ? null : { message: "no rows" } };
@@ -510,6 +529,14 @@ function fireAuth(event: string) {
 // ============ RPC MOCK ============
 const rpcMock = async (fn: string, args: any) => {
   const now = () => new Date().toISOString();
+  const pushNotification = (userId: string, type: string, title: string, body: string, data: any = {}) => {
+    demoDB.notifications.unshift({ id: uid(), user_id: userId, type, title, body, data, is_read: false, created_at: now() });
+  };
+  const notifyAdmins = (type: string, title: string, body: string, data: any = {}) => {
+    demoDB.profiles
+      .filter((profile: any) => ["owner", "manager", "developer"].includes(profile.role) && profile.status === "active" && profile.is_active !== false)
+      .forEach((profile: any) => pushNotification(profile.id, type, title, body, data));
+  };
   const activeProjects = () => demoDB.projects.filter((project: any) => project.status === "active");
   const activeAssignments = (workerId: string) => demoDB.worker_projects.filter((assignment: any) =>
     assignment.worker_id === workerId && activeProjects().some((project: any) => project.id === assignment.project_id)
@@ -694,6 +721,14 @@ const rpcMock = async (fn: string, args: any) => {
       decision_note: null, created_by: args.p_worker_id, created_at: now(),
     };
     demoDB.withdrawals.push(rec);
+    const approved = rec.status === "approved";
+    pushNotification(args.p_worker_id, approved ? "withdrawal_auto" : "withdrawal_new",
+      approved ? "تمت الموافقة على طلب السحب" : "طلب السحب قيد المراجعة",
+      approved ? `تمت الموافقة تلقائيًا على طلبك بمبلغ ${amount} ج.م` : `طلبك بمبلغ ${amount} ج.م بانتظار قرار المالك`,
+      { withdrawal_id: rec.id, amount, status: rec.status });
+    notifyAdmins(approved ? "withdrawal_auto" : "withdrawal_pending",
+      approved ? "صرف تلقائي" : "مطلوب موافقة", `${demoDB.profiles.find((p: any) => p.id === args.p_worker_id)?.full_name ?? "عامل"} طلب ${amount} ج.م`,
+      { worker_id: args.p_worker_id, withdrawal_id: rec.id, amount, status: rec.status });
     return { data: rec, error: null };
   }
 
@@ -704,7 +739,10 @@ const rpcMock = async (fn: string, args: any) => {
     worker.daily_wage = args.p_daily_wage ?? worker.daily_wage;
     worker.approved_at = now();
     if (args.p_project_id && !demoDB.worker_projects.some((row: any) => row.worker_id === worker.id && row.project_id === args.p_project_id)) {
+      const project = activeProjects().find((row: any) => row.id === args.p_project_id);
       demoDB.worker_projects.push({ id: uid(), worker_id: worker.id, project_id: args.p_project_id, daily_wage: worker.daily_wage, joined_at: now() });
+      pushNotification(worker.id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: args.p_project_id });
+      notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: args.p_project_id });
     }
     demoDB.notifications.unshift({ id: uid(), user_id: worker.id, type: "account_approved", title: "تم تفعيل حسابك", body: "يمكنك الآن تسجيل الحضور ومراجعة رصيدك العام", data: {}, is_read: false, created_at: now() });
     return { data: null, error: null };
@@ -728,7 +766,10 @@ const rpcMock = async (fn: string, args: any) => {
       created_at: now(),
     });
     if (args.p_project_id) {
+      const project = activeProjects().find((row: any) => row.id === args.p_project_id);
       demoDB.worker_projects.push({ id: uid(), worker_id: id, project_id: args.p_project_id, daily_wage: args.p_daily_wage ?? 0, joined_at: now() });
+      pushNotification(id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: args.p_project_id });
+      notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${args.p_full_name} — ${project?.name ?? "مشروع"}`, { worker_id: id, project_id: args.p_project_id });
     }
     return { data: id, error: null };
   }
@@ -750,6 +791,7 @@ const rpcMock = async (fn: string, args: any) => {
       if ([...selected].some((id) => !activeProjects().some((project: any) => project.id === id))) {
         return { data: null, error: { message: "قائمة المشاريع غير صالحة" } };
       }
+      const previousIds = new Set(activeAssignments(worker.id).map((assignment: any) => assignment.project_id));
       demoDB.worker_projects = demoDB.worker_projects.filter((assignment: any) =>
         assignment.worker_id !== worker.id ||
         !activeProjects().some((project: any) => project.id === assignment.project_id) ||
@@ -759,6 +801,18 @@ const rpcMock = async (fn: string, args: any) => {
         const existing = demoDB.worker_projects.find((assignment: any) => assignment.worker_id === worker.id && assignment.project_id === projectId);
         if (existing) existing.daily_wage = wage;
         else demoDB.worker_projects.push({ id: uid(), worker_id: worker.id, project_id: projectId, daily_wage: wage, joined_at: now() });
+      }
+      for (const projectId of previousIds) {
+        if (selected.has(projectId)) continue;
+        const project = demoDB.projects.find((row: any) => row.id === projectId);
+        pushNotification(worker.id, "project_unassigned", "تمت إزالتك من مشروع", `لم تعد ضمن فريق مشروع ${project?.name ?? "محذوف"}`, { project_id: projectId });
+        notifyAdmins("project_assignment", "إزالة عامل من مشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: projectId, action: "removed" });
+      }
+      for (const projectId of selected) {
+        if (previousIds.has(projectId)) continue;
+        const project = activeProjects().find((row: any) => row.id === projectId);
+        pushNotification(worker.id, "project_assigned", "تم تعيينك على مشروع", `تمت إضافتك إلى مشروع ${project?.name ?? "جديد"}`, { project_id: projectId });
+        notifyAdmins("project_assignment", "تعيين عامل لمشروع", `${worker.full_name} — ${project?.name ?? "مشروع"}`, { worker_id: worker.id, project_id: projectId, action: "assigned" });
       }
     }
     return { data: null, error: null };
@@ -771,8 +825,79 @@ const rpcMock = async (fn: string, args: any) => {
     }
     const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
     if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
-    demoDB.deductions.push({ id: uid(), worker_id: worker.id, project_id: null, amount, reason: String(args.p_reason).trim(), created_by: currentUser?.id ?? "demo-owner", created_at: now() });
+    const deduction = { id: uid(), worker_id: worker.id, project_id: null, amount, reason: String(args.p_reason).trim(), created_by: currentUser?.id ?? "demo-owner", created_at: now(), voided_at: null, voided_by: null, void_reason: null };
+    demoDB.deductions.push(deduction);
+    pushNotification(worker.id, "deduction_new", "تم تسجيل خصم على حسابك", `المبلغ: ${amount} ج.م — السبب: ${deduction.reason}`, { deduction_id: deduction.id, amount, reason: deduction.reason });
+    notifyAdmins("deduction_new", "خصم جديد", `${worker.full_name} — خصم ${amount} ج.م: ${deduction.reason}`, { worker_id: worker.id, deduction_id: deduction.id, amount, reason: deduction.reason });
     return { data: null, error: null };
+  }
+
+  if (fn === "reverse_worker_deduction") {
+    if (!demoDB.profiles.some((profile: any) => profile.id === currentUser?.id && ["owner", "manager", "developer"].includes(profile.role))) {
+      return { data: null, error: { message: "إلغاء الخصم متاح للإدارة النشطة فقط" } };
+    }
+    const reason = String(args.p_reason ?? "").trim();
+    if (reason.length < 3 || reason.length > 500) return { data: null, error: { message: "اكتب سببًا واضحًا من 3 إلى 500 حرف" } };
+    const deduction = demoDB.deductions.find((row: any) => row.id === args.p_deduction_id);
+    if (!deduction) return { data: null, error: { message: "الخصم غير موجود" } };
+    if (deduction.voided_at) {
+      if (deduction.voided_by === currentUser?.id && deduction.void_reason === reason) return { data: null, error: null };
+      return { data: null, error: { message: "تم إلغاء هذا الخصم بالفعل" } };
+    }
+    const worker = demoDB.profiles.find((profile: any) => profile.id === deduction.worker_id);
+    deduction.voided_at = now();
+    deduction.voided_by = currentUser?.id ?? null;
+    deduction.void_reason = reason;
+    pushNotification(deduction.worker_id, "deduction_reversed", "تم إلغاء خصم من حسابك", `أُلغي خصم بقيمة ${deduction.amount} ج.م — السبب: ${reason}`, { deduction_id: deduction.id, amount: deduction.amount, reason });
+    notifyAdmins("deduction_reversed", "تم إلغاء خصم", `${worker?.full_name ?? "عامل"} — إلغاء خصم ${deduction.amount} ج.م: ${reason}`, { worker_id: deduction.worker_id, deduction_id: deduction.id, amount: deduction.amount, reason });
+    return { data: null, error: null };
+  }
+
+  if (fn === "create_worker_settlement") {
+    if (!demoDB.profiles.some((profile: any) => profile.id === currentUser?.id && ["owner", "manager", "developer"].includes(profile.role))) {
+      return { data: null, error: { message: "صرف التسوية متاح للإدارة النشطة فقط" } };
+    }
+    const existing = demoDB.settlements.find((row: any) => row.client_request_id === args.p_request_id);
+    if (existing) {
+      if (existing.worker_id !== args.p_worker_id || existing.project_id != null || existing.status !== "paid") return { data: null, error: { message: "رقم العملية مستخدم لتسوية مختلفة" } };
+      return { data: existing, error: null };
+    }
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    if (demoDB.withdrawals.some((row: any) => row.worker_id === worker.id && row.status === "pending")) {
+      return { data: null, error: { message: "احسم طلبات الصرف المعلّقة قبل تسوية رصيد العامل" } };
+    }
+    const lastSettlement = demoDB.settlements
+      .filter((row: any) => row.worker_id === worker.id && row.project_id == null && row.status === "paid")
+      .map((row: any) => row.paid_at ?? row.created_at)
+      .sort()
+      .at(-1);
+    const afterLast = (row: any) => !lastSettlement || row.created_at > lastSettlement;
+    const attendance = demoDB.attendance.filter((row: any) => row.worker_id === worker.id && afterLast(row));
+    const withdrawals = demoDB.withdrawals.filter((row: any) => row.worker_id === worker.id && row.status === "approved" && afterLast(row));
+    const deductions = demoDB.deductions.filter((row: any) => row.worker_id === worker.id && (
+      (!row.voided_at && afterLast(row))
+      || (row.voided_at && lastSettlement && row.created_at <= lastSettlement && row.voided_at > lastSettlement)
+    ));
+    const earned = attendance.reduce((sum: number, row: any) => sum + Number(row.daily_wage_snapshot ?? worker.daily_wage ?? 0), 0);
+    const withdrawn = withdrawals.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
+    const deducted = deductions.reduce((sum: number, row: any) => sum + (row.voided_at ? -Number(row.amount) : Number(row.amount)), 0);
+    const balance = Number(workerBalances().find((row: any) => row.worker_id === worker.id)?.balance ?? 0);
+    if (balance <= 0) return { data: null, error: { message: "مفيش رصيد موجب مستحق للتسوية" } };
+    if (Math.round((earned - withdrawn - deducted) * 100) !== Math.round(balance * 100)) {
+      return { data: null, error: { message: "تغيّر سجل الحساب ويحتاج مراجعة قبل الصرف؛ أعد تحميل الصفحة" } };
+    }
+    const settlement = {
+      id: uid(), worker_id: worker.id, project_id: null,
+      days_worked: attendance.length, daily_wage: Number(worker.daily_wage ?? 0),
+      total_earned: earned, total_withdrawn: withdrawn, total_deductions: deducted,
+      net_amount: balance, status: "paid", worker_ack_at: null,
+      confirmed_by: currentUser?.id ?? null, paid_at: now(), created_at: now(),
+      client_request_id: args.p_request_id,
+    };
+    demoDB.settlements.push(settlement);
+    pushNotification(worker.id, "settlement_paid", "تم تسجيل صرف مستحقاتك", `تم تسجيل صرف مبلغ ${balance} ج.م`, { settlement_id: settlement.id, amount: balance });
+    return { data: settlement, error: null };
   }
 
   if (fn === "reset_worker_password") return { data: null, error: null };
@@ -820,6 +945,11 @@ const rpcMock = async (fn: string, args: any) => {
     project.closed_at = now();
     project.archived_at = project.closed_at;
     project.end_date ??= project.closed_at.slice(0, 10);
+    notifyAdmins("project_archived", "تمت أرشفة مشروع", `تم إغلاق مشروع ${project.name}`, { project_id: project.id, project_name: project.name });
+    const assignedIds = new Set<string>(demoDB.worker_projects.filter((row: any) => row.project_id === project.id).map((row: any) => String(row.worker_id)));
+    for (const workerId of assignedIds) {
+      pushNotification(workerId, "project_archived", "تم إغلاق المشروع", `تم إغلاق مشروع ${project.name}؛ سجلات حضورك السابقة محفوظة في كشفك`, { project_id: project.id, project_name: project.name });
+    }
     return { data: null, error: null };
   }
 

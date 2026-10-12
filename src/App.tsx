@@ -29,6 +29,7 @@ const Workers = lazy(() => import("./pages/admin/Workers"));
 const Projects = lazy(() => import("./pages/admin/Projects"));
 const Attendance = lazy(() => import("./pages/admin/Attendance"));
 const Withdrawals = lazy(() => import("./pages/admin/Withdrawals"));
+const Deductions = lazy(() => import("./pages/admin/Deductions"));
 const Settlements = lazy(() => import("./pages/admin/Settlements"));
 const AuditLog = lazy(() => import("./pages/admin/AuditLog"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
@@ -247,6 +248,7 @@ export default function App() {
             <Route path="projects" element={<Projects />} />
             <Route path="attendance" element={<Attendance />} />
             <Route path="withdrawals" element={<Withdrawals />} />
+            <Route path="deductions" element={<Deductions />} />
             <Route path="settlements" element={<Settlements />} />
             <Route path="audit" element={<AuditLog />} />
             <Route path="settings" element={<SettingsPage />} />

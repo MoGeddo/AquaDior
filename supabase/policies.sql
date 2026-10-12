@@ -238,8 +238,9 @@ drop policy if exists "ded write" on public.deductions;
 
 create policy "ded read" on public.deductions for select
   using (auth.uid() = worker_id or public.is_admin());
-create policy "ded write" on public.deductions for all
-  using (public.is_admin()) with check (public.is_admin());
+-- Financial deductions are append-only. RPCs may add or void them; clients cannot rewrite ledger rows.
+revoke insert, update, delete on table public.deductions from public, anon, authenticated;
+grant select on table public.deductions to authenticated;
 
 -- ---------- SETTLEMENTS ----------
 alter table public.settlements enable row level security;
@@ -249,8 +250,9 @@ drop policy if exists "st write" on public.settlements;
 
 create policy "st read" on public.settlements for select
   using (auth.uid() = worker_id or public.is_admin());
-create policy "st write" on public.settlements for all
-  using (public.is_admin()) with check (public.is_admin());
+-- Settlement and payout snapshots are created only through the atomic RPC.
+revoke insert, update, delete on table public.settlements from public, anon, authenticated;
+grant select on table public.settlements to authenticated;
 
 -- ---------- AUDIT_LOG ----------
 alter table public.audit_log enable row level security;
@@ -280,8 +282,7 @@ revoke update (
   id, user_id, type, title, body, data, created_at
 ) on public.notifications from public, anon, authenticated;
 grant update (is_read) on public.notifications to authenticated;
-create policy "notif admin read" on public.notifications for select
-  using (public.is_admin());
+-- إشعارات الإدارة تُنشأ كسجلات فردية بواسطة notify_admins؛ لا يُسمح للإدارة بقراءة صندوق عامل آخر.
 -- الإضافة تتم بواسطة trigger داخلي فقط.
 
 -- ---------- SETTINGS ----------

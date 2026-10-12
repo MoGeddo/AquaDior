@@ -88,6 +88,14 @@ export default function WorkerHome() {
   }, [loadToday, loadGpsConfig]);
 
   useEffect(() => {
+    setPickedProjectIds((current) => {
+      const valid = current.filter((id) => ctx.projects.some((project) => project.id === id));
+      if (valid.length) return valid;
+      return ctx.projects.length === 1 ? [ctx.projects[0].id] : [];
+    });
+  }, [ctx.projects]);
+
+  useEffect(() => {
     const reloadAfterSync = () => {
       void loadToday().then((found) => {
         if (found) {
@@ -198,6 +206,72 @@ export default function WorkerHome() {
 
   return (
     <>
+      {msg && <div className={`alert ${msg.type}`} role="status">{msg.text}</div>}
+      {gpsConfigError && <div className="alert error" role="alert">تعذر تحميل إعداد GPS: {gpsConfigError} <button className="btn btn-sm" onClick={() => void loadGpsConfig()} disabled={busy}>إعادة المحاولة</button></div>}
+
+      <div className="card worker-attendance-card">
+        <div className="card-title">
+          <span>{fmtDate(todayStr())}</span>
+          {attendanceQueued && !today ? <span className="badge amber">بانتظار المزامنة</span> : done ? <span className="badge green">✓ نزلت</span> : <span className="badge amber">لسه مسجّلتش</span>}
+        </div>
+
+        {!done ? (
+          <>
+            <div className="card-title" style={{ marginTop: 2 }}>
+              <span>اشتغلت في أنهي مشاريع/مواقع النهاردة؟</span>
+              <span className="small muted">اختار كل المشاريع؛ اليومية تُحسب مرة واحدة</span>
+            </div>
+            {ctx.projects.length > 0 ? (
+              <div className="flex wrap worker-project-choices">
+                {ctx.projects.map((project) => {
+                  const selected = pickedProjectIds.includes(project.id);
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      className={`btn worker-project-choice ${selected ? "btn-primary" : ""}`}
+                      aria-pressed={selected}
+                      disabled={busy || ctx.loading || Boolean(ctx.loadError)}
+                      onClick={() => setPickedProjectIds((current) => selected ? current.filter((id) => id !== project.id) : [...current, project.id])}
+                    >
+                      {selected ? "✓ " : ""}{project.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="alert info">
+                لم يُعيّن لك مشروع. يمكنك تسجيل حضورك مرة واحدة بدون ربط بمشروع؛ اطلب من الإدارة تعيين الموقع إذا كنت تعمل فيه.
+              </div>
+            )}
+            <div className="mt">
+              <button
+                className="btn-hero primary"
+                onClick={() => void register()}
+                disabled={busy || ctx.loading || Boolean(ctx.loadError) || !gpsConfigLoaded || (ctx.projects.length > 0 && pickedProjectIds.length === 0)}
+              >
+                <span>{busy ? (gpsEnabled ? "جاري تحديد موقعك وتسجيل الحضور…" : "جاري تسجيل الحضور…") : ctx.projects.length === 0 ? "سجّل حضورك النهاردة" : "⬇️ نزلت النهاردة"}</span>
+                <small>{busy ? "انتظر لحظات ولا تضغط مرة ثانية" : pickedProjectIds.length ? `في ${pickedProjectIds.length} مشروع` : ctx.projects.length === 0 ? "يومية واحدة — بدون مشروع محدد" : "سجّل حضورك مرة واحدة"}</small>
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="card-title" style={{ marginTop: 2 }}>
+              <span>المشاريع المسجلة لحضور اليوم</span>
+              {today && <button className="btn btn-sm worker-project-choice" onClick={() => setShowProject(true)}>+ مشروع</button>}
+            </div>
+            <div className="flex wrap worker-project-choices">
+              {todayProjects.length === 0 ? <span className="muted small">لم يُربط حضورك بمشروع؛ اليومية احتُسبت مرة واحدة.</span> : todayProjects.map((record) => (
+                <span key={record.project_id} className="site-pill">📍 {record.project?.name ?? "مشروع"}</span>
+              ))}
+            </div>
+            <div className="mt"><button className="btn-hero money" onClick={() => setShowMoney(true)}><span>💵 خدت فلوس</span><small>يتخصم من رصيدك العام</small></button></div>
+            {(balance?.withdrawn_pending ?? 0) > 0 && <div className="alert info mt">عندك {money(balance?.withdrawn_pending ?? 0)} مستنية موافقة المالك</div>}
+          </>
+        )}
+      </div>
+
       <div className="card" style={{ background: "linear-gradient(160deg, #0f766e, #134e4a)", border: "none", color: "#fff", boxShadow: "0 10px 28px rgba(15,118,110,0.28)" }}>
         <div style={{ fontSize: 12.5, opacity: 0.85, fontWeight: 700 }}>متاح تاخد دلوقتي — من رصيدك العام</div>
         <div style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-1px", lineHeight: 1.2, margin: "2px 0" }}>
@@ -211,59 +285,6 @@ export default function WorkerHome() {
         <div className="stat"><div className="label">استحقاقك</div><div className="value">{money(balance?.earned ?? 0)}</div></div>
         <div className="stat"><div className="label">خدت</div><div className="value amber">{money((balance?.withdrawn_approved ?? 0) + (balance?.withdrawn_pending ?? 0))}</div></div>
         <div className="stat"><div className="label">يوميتك الثابتة</div><div className="value blue">{money(balance?.daily_wage ?? 0)}</div></div>
-      </div>
-
-      {msg && <div className={`alert ${msg.type}`} role="status">{msg.text}</div>}
-      {gpsConfigError && <div className="alert error" role="alert">تعذر تحميل إعداد GPS: {gpsConfigError} <button className="btn btn-sm" onClick={() => void loadGpsConfig()} disabled={busy}>إعادة المحاولة</button></div>}
-
-      <div className="card">
-        <div className="card-title">
-          <span>{fmtDate(todayStr())}</span>
-          {attendanceQueued && !today ? <span className="badge amber">بانتظار المزامنة</span> : done ? <span className="badge green">✓ نزلت</span> : <span className="badge amber">لسه مسجّلتش</span>}
-        </div>
-
-        {!done ? (
-          <>
-            <div className="card-title" style={{ marginTop: 2 }}>
-              <span>اشتغلت في أنهي مشاريع/مواقع النهاردة؟</span>
-              <span className="small muted">اختار كل المشاريع؛ اليومية تُحسب مرة واحدة</span>
-            </div>
-            {ctx.projects.length > 0 ? (
-              <div className="flex wrap" style={{ gap: 8 }}>
-                {ctx.projects.map((project) => {
-                  const selected = pickedProjectIds.includes(project.id);
-                  return (
-                    <button key={project.id} className={`btn btn-sm ${selected ? "btn-primary" : ""}`} disabled={busy || ctx.loading || Boolean(ctx.loadError)} onClick={() => setPickedProjectIds((current) => selected ? current.filter((id) => id !== project.id) : [...current, project.id])}>
-                      {selected ? "✓ " : ""}{project.name}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="small muted">لا توجد مشاريع معيّنة لحسابك؛ راجع الإدارة.</div>
-            )}
-            <div className="mt">
-              <button className="btn-hero primary" onClick={() => void register()} disabled={busy || ctx.loading || Boolean(ctx.loadError) || (ctx.projects.length > 0 && pickedProjectIds.length === 0)}>
-                <span>⬇️ نزلت النهاردة</span>
-                <small>{pickedProjectIds.length ? `في ${pickedProjectIds.length} مشروع` : "سجّل حضورك مرة واحدة"}</small>
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="card-title" style={{ marginTop: 2 }}>
-              <span>المشاريع المسجلة لحضور اليوم</span>
-              {today && <button className="btn btn-sm btn-primary" onClick={() => setShowProject(true)}>+ مشروع</button>}
-            </div>
-            <div className="flex wrap" style={{ gap: 8 }}>
-              {todayProjects.length === 0 ? <span className="muted small">لم يُربط الحضور بمشروع محدد.</span> : todayProjects.map((record) => (
-                <span key={record.project_id} className="site-pill">📍 {record.project?.name ?? "مشروع"}</span>
-              ))}
-            </div>
-            <div className="mt"><button className="btn-hero money" onClick={() => setShowMoney(true)}><span>💵 خدت فلوس</span><small>يتخصم من رصيدك العام</small></button></div>
-            {(balance?.withdrawn_pending ?? 0) > 0 && <div className="alert info mt">عندك {money(balance?.withdrawn_pending ?? 0)} مستنية موافقة المالك</div>}
-          </>
-        )}
       </div>
 
       {showMoney && profile && <MoneyModal workerId={profile.id} balance={balance} onClose={() => setShowMoney(false)} onDone={(queued) => {

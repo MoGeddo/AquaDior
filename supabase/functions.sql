@@ -1047,7 +1047,7 @@ select
   (select count(*) from public.worker_projects wp where wp.project_id = p.id) as workers_count,
   (select count(*) from public.attendance a where a.project_id = p.id) as attendance_count,
   (select coalesce(sum(wd.amount), 0) from public.withdrawals wd where wd.project_id = p.id) as total_withdrawn,
-  (select coalesce(sum(d.amount), 0) from public.deductions d where d.project_id = p.id) as total_deductions,
+  (select coalesce(sum(d.amount), 0) from public.deductions d where d.project_id = p.id and d.voided_at is null) as total_deductions,
   (select coalesce(sum(s.net_amount), 0) from public.settlements s where s.project_id = p.id) as total_paid
 from public.projects p
 where p.status = 'closed'
@@ -1147,9 +1147,10 @@ select
   coalesce(w.approved, 0) as withdrawn_approved,
   coalesce(w.pending, 0) as withdrawn_pending,
   coalesce(d.deducted, 0) as deducted,
-  coalesce(e.earned, 0) - coalesce(w.approved, 0) - coalesce(d.deducted, 0) as balance,
+  coalesce(e.earned, 0) - coalesce(w.approved, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as balance,
   coalesce(e.earned, 0) - coalesce(w.approved, 0)
-    - coalesce(w.pending, 0) - coalesce(d.deducted, 0) as available
+    - coalesce(w.pending, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as available,
+  coalesce(st.paid, 0) as settled_paid
 from public.profiles p
 left join (
   select worker_id, count(*) as days_worked, sum(wage) as earned
@@ -1164,8 +1165,14 @@ left join (
 ) w on w.worker_id = p.id
 left join (
   select worker_id, sum(amount) as deducted
-  from public.deductions group by worker_id
+  from public.deductions where voided_at is null group by worker_id
 ) d on d.worker_id = p.id
+left join (
+  select worker_id, sum(net_amount) as paid
+  from public.settlements
+  where project_id is null and status = 'paid'
+  group by worker_id
+) st on st.worker_id = p.id
 where p.role = 'worker';
 
 -- Project archives are activity-only; financial totals belong to worker_balances.

@@ -75,6 +75,9 @@ export interface Deduction {
   reason: string;
   created_by: string | null;
   created_at: string;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
 }
 
 export interface Settlement {
@@ -91,6 +94,7 @@ export interface Settlement {
   worker_ack_at: string | null;
   confirmed_by: string | null;
   paid_at: string | null;
+  client_request_id?: string | null;
   created_at: string;
 }
 
@@ -119,6 +123,7 @@ export interface WorkerBalance {
   deducted: number;
   balance: number;
   available: number;
+  settled_paid: number;
 }
 
 export interface AppSettings {

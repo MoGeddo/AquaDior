@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { money } from "../../lib/calc";
-import type { Project, WorkerBalance } from "../../lib/types";
+import type { Deduction, Project, WorkerBalance } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "../../store/auth";
 
@@ -106,6 +106,8 @@ export default function Workers() {
                 <th>أيام</th>
                 <th>استحقاق</th>
                 <th>خد</th>
+                <th>خصومات</th>
+                <th>تسويات</th>
                 <th>رصيد</th>
                 <th></th>
               </tr>
@@ -126,6 +128,8 @@ export default function Workers() {
                   <td className="num amber">
                     {money(Number(w.withdrawn_approved) + Number(w.withdrawn_pending))}
                   </td>
+                  <td className="num red">{money(Number(w.deducted))}</td>
+                  <td className="num">{money(Number(w.settled_paid ?? 0))}</td>
                   <td className="num green">
                     <b>{money(w.balance)}</b>
                   </td>
@@ -150,7 +154,7 @@ export default function Workers() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="center muted">
+                  <td colSpan={10} className="center muted">
                     مفيش عمال
                   </td>
                 </tr>
@@ -310,6 +314,8 @@ function EditWorker({
   const [assignedProjectIds, setAssignedProjectIds] = useState<string[]>([]);
   const [assignmentsLoaded, setAssignmentsLoaded] = useState(false);
   const [assignmentLoadError, setAssignmentLoadError] = useState("");
+  const [deductions, setDeductions] = useState<Deduction[]>([]);
+  const [deductionLoadError, setDeductionLoadError] = useState("");
   const [dAmount, setDAmount] = useState("");
   const [dReason, setDReason] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -344,6 +350,25 @@ function EditWorker({
     };
   }, [worker.worker_id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setDeductionLoadError("");
+    (async () => {
+      const { data, error } = await supabase
+        .from("deductions")
+        .select("*")
+        .eq("worker_id", worker.worker_id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (cancelled) return;
+      if (error) setDeductionLoadError(error.message ?? "تعذر تحميل الخصومات");
+      else setDeductions((data ?? []) as Deduction[]);
+    })().catch((error: any) => {
+      if (!cancelled) setDeductionLoadError(error?.message ?? "تعذر تحميل الخصومات");
+    });
+    return () => { cancelled = true; };
+  }, [worker.worker_id]);
+
   async function saveInfo() {
     setErr("");
     const cleanPhone = phone.replace(/[^0-9]/g, "");
@@ -374,6 +399,7 @@ function EditWorker({
     const v = Number(dAmount);
     if (!Number.isFinite(v) || v <= 0) return setErr("اكتب مبلغ صحيح");
     if (!dReason.trim() || dReason.trim().length > 500) return setErr("اكتب سببًا من 1 إلى 500 حرف");
+    if (!window.confirm(`تأكيد خصم ${money(v)} من الحساب العام للعامل «${worker.full_name}»؟\nالسبب: ${dReason.trim()}`)) return;
     setBusy(true);
     const { error } = await supabase.rpc("add_worker_deduction", {
       p_worker_id: worker.worker_id,
@@ -548,8 +574,23 @@ function EditWorker({
             />
           </label>
           <button className="btn btn-danger btn-block" onClick={addDeduction} disabled={busy}>
-            خصم
+            {busy ? "جاري تسجيل الخصم…" : "تأكيد تسجيل الخصم"}
           </button>
+          <div className="card-title" style={{ marginTop: 20 }}>آخر الخصومات المسجلة</div>
+          {deductionLoadError && <div className="alert error" role="alert">{deductionLoadError}</div>}
+          {deductions.length === 0 ? <div className="small muted">لا توجد خصومات سابقة لهذا العامل.</div> : (
+            <div className="notification-list">
+              {deductions.map((deduction) => (
+                <div className="deduction-row" key={deduction.id}>
+                  <div className="deduction-amount num">
+                    {deduction.voided_at ? <span className="badge gray">ملغي</span> : <>− {money(deduction.amount)}</>}
+                  </div>
+                  <div className="small muted"><time dateTime={deduction.created_at}>{deduction.created_at?.slice(0, 10)}</time></div>
+                  <div className="deduction-reason">{deduction.reason}{deduction.void_reason && <div className="small muted">سبب الإلغاء: {deduction.void_reason}</div>}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
