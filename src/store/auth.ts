@@ -20,7 +20,7 @@ interface AuthState {
     fullName: string,
     username: string,
     password: string
-  ) => Promise<{ error?: string; accountCreated?: boolean }>;
+  ) => Promise<{ error?: string; accountCreated?: boolean; accountExists?: boolean }>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -98,7 +98,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           return { error: "اسم المستخدم أو كلمة السر غير صحيحة" };
         }
         if (message.includes("email not confirmed")) {
-          return { error: "الحساب لم يتم تأكيده بعد؛ تواصل مع الإدارة" };
+          return { error: "الحساب لم يُفعّل بعد. لا يلزمك بريد إلكتروني؛ اطلب من الإدارة تفعيل الحساب ثم سجّل الدخول باسم المستخدم وكلمة السر." };
         }
         if (message.includes("rate limit") || message.includes("too many")) {
           return { error: "محاولات كثيرة — انتظر قليلاً ثم حاول مرة أخرى" };
@@ -152,9 +152,17 @@ export const useAuth = create<AuthState>((set, get) => ({
       });
       if (error) return { error: error.message };
       if (!data.session) {
+        // Supabase intentionally returns no identity details for an existing
+        // email when email confirmation is enabled. Try signing in so a worker
+        // can safely resume a prior registration without creating a duplicate.
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          return { accountExists: true };
+        }
         return {
           accountCreated: Boolean(data.user),
-          error: "تم إنشاء حساب Auth لكن لم تبدأ جلسة. هذا التطبيق يستخدم بريدًا اصطناعيًا @ommal.app لا يستقبل رسائل؛ عطّل تأكيد البريد في Supabase أو أكّد الحساب إداريًا، ثم أعد المحاولة لرفع صورة البطاقة.",
+          error: data.user
+            ? "تم إنشاء الحساب، لكن إعدادات الخادم منعت بدء جلسة الدخول. لا تدخل بريدًا إلكترونيًا؛ يلزم من الإدارة إيقاف تأكيد البريد وتفعيل الحساب مرة واحدة، ثم تسجّل الدخول باسم المستخدم وكلمة السر."
+            : "الخادم لم يُكمل إنشاء الحساب. لا تحتاج إلى بريد إلكتروني؛ أعد المحاولة، وإذا استمر الرفض راجع الإدارة.",
         };
       }
       await get().refresh();

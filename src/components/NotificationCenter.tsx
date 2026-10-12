@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Notification } from "../lib/types";
 import { Modal } from "./Modal";
+import ExternalPushSettings from "./ExternalPushSettings";
 
 const ICONS: Record<string, string> = {
   account_approved: "✅",
@@ -109,6 +110,8 @@ export default function NotificationCenter({
 
   return (
     <Modal title="إشعاراتك" onClose={onClose}>
+      <ExternalPushSettings userId={userId} />
+
       <div className="flex-between mb">
         <span className="small muted" aria-live="polite">
           {unreadCount ? `${unreadCount} غير مقروء إجمالًا` : "كل الإشعارات مقروءة"} · آخر 100 إشعار{unreadInFeed > 0 && unreadInFeed !== unreadCount ? `، ${unreadInFeed} منها في القائمة` : ""}

@@ -79,6 +79,28 @@ function click(el) {
 function buttonByText(re) {
   return $$("button").find((b) => re.test(b.textContent || ""));
 }
+function setNetworkOnline(online) {
+  Object.defineProperty(window.navigator, "onLine", { configurable: true, value: online });
+  window.dispatchEvent(new window.Event(online ? "online" : "offline"));
+}
+async function readPendingOperations() {
+  return new Promise((resolve, reject) => {
+    const open = window.indexedDB.open("ommal-app");
+    open.onerror = () => reject(open.error || new Error("تعذر فتح طابور العمل بلا إنترنت"));
+    open.onsuccess = () => {
+      const database = open.result;
+      if (!database.objectStoreNames.contains("queue")) {
+        database.close();
+        resolve([]);
+        return;
+      }
+      const transaction = database.transaction("queue", "readonly");
+      const request = transaction.objectStore("queue").getAll();
+      request.onerror = () => { database.close(); reject(request.error || new Error("تعذر قراءة طابور العمل بلا إنترنت")); };
+      request.onsuccess = () => { database.close(); resolve(request.result ?? []); };
+    };
+  });
+}
 async function waitFor(fn, { timeout = 8000, label = "شرط" } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -145,6 +167,10 @@ await waitFor(() => window.location.pathname === "/register" && $$("input").leng
   label: "نموذج التسجيل",
 });
 check("نموذج التسجيل يفتح ويعرض الحقول المطلوبة", /تسجيل حساب جديد/.test(text()) && $$("input").length >= 6);
+check(
+  "التسجيل يطلب اسم مستخدم ولا يطلب بريدًا أو يعرض النطاق الداخلي",
+  $$('input[type="email"]').length === 0 && !/@ommal\.app/i.test(text()) && /بدون بريد إلكتروني/.test(text())
+);
 const registrationPasswords = $$('input[type="password"]');
 check(
   "نموذج التسجيل يحدّ كلمة السر إلى 128 حرفًا",
@@ -281,6 +307,7 @@ if (workerNotificationsButton) {
   click(workerNotificationsButton);
   await waitFor(() => /تم تعيينك على مشروع/.test(text()), { label: "عرض إشعار تعيين المشروع للعامل" });
   check("العامل يرى إشعار تعيين مشروعه داخل التطبيق", /مشروع اختبار آلي/.test(text()));
+  check("زر Push الخارجي لا يتفعّل قبل إعداد المزود", text().includes("تنتظر ربط حساب OneSignal") && !buttonByText(/تفعيل إشعارات الهاتف/));
   const markNotificationRead = $('[aria-label^="تعليم"]');
   if (markNotificationRead) {
     click(markNotificationRead);
@@ -319,12 +346,23 @@ await waitFor(() => {
 }, { label: "تفعيل زر تسجيل الحضور" });
 const attBtn = buttonByText(/نزلت النهاردة/);
 if (attBtn) {
+  // GPS is enabled only in the isolated smoke fixture. Simulate a disconnected
+  // worker: capture coordinates now, queue the complete RPC payload, then sync.
+  setNetworkOnline(false);
   click(attBtn);
   try {
-    await waitFor(() => /المشاريع المسجلة لحضور اليوم/.test(text()) && !!buttonByText(/\+ مشروع/), { timeout: 9000, label: "تأكيد ربط الحضور بمشاريعه" });
-    check("📅 تسجيل الحضور نجح", errors.length === errBeforeAtt, "سجل حضور واحد ظاهر للمشاريع المحددة");
+    await waitFor(() => /الحضور محفوظ على الجهاز وبانتظار تحقق الخادم/.test(text()), { timeout: 9000, label: "حفظ الحضور والإحداثيات دون إنترنت" });
+    const pendingOps = await readPendingOperations();
+    const attendanceOp = pendingOps.find((op) => op.table === "rpc" && op.payload?.fn === "register_attendance_multi");
+    check("الحضور بلا إنترنت يخزن إحداثيات GPS في الطابور", attendanceOp?.payload?.args?.p_lat === 30.0444 && attendanceOp?.payload?.args?.p_lng === 31.2357);
+    setNetworkOnline(true);
+    await waitFor(() => window.__smokeDemoDB?.attendance?.some((row) => row.lat === 30.0444 && row.lng === 31.2357), { timeout: 9000, label: "مزامنة إحداثيات الحضور بعد عودة الإنترنت" });
+    check("الخادم يستقبل نفس الإحداثيات بعد عودة الإنترنت", window.__smokeDemoDB?.attendance?.some((row) => row.lat === 30.0444 && row.lng === 31.2357));
+    await waitFor(() => /المشاريع المسجلة لحضور اليوم/.test(text()) && !!buttonByText(/\+ مشروع/), { timeout: 9000, label: "تأكيد مزامنة الحضور وربطه بالمشاريع" });
+    check("📅 تسجيل الحضور نجح", errors.length === errBeforeAtt, "سجل حضور واحد تزامن بعد عودة الاتصال");
     check("الحضور مرتبط بالمشروعين المختارين", text().includes("مشروع اختبار آلي") && text().includes("موقع اختبار آلي ثانٍ"));
   } catch (e) {
+    setNetworkOnline(true);
     check("📅 تسجيل الحضور نجح", false, e.message + " | " + (errors[errors.length - 1] || text()).slice(0, 240).replace(/\s+/g, " "));
   }
 }

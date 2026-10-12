@@ -42,6 +42,10 @@ npm run test:smoke
 
 المستودع يتضمن `public/_redirects` لإعادة توجيه مسارات SPA إلى `index.html`. ملفات الواجهة الثابتة تُخزّن عبر Service Worker، لكن بيانات Supabase لا تُخزّن في كاش PWA. طابور IndexedDB لا يغني عن اختبار سيناريوهات الاتصال الفعلية.
 
+## استخدام التطبيق على iPhone
+
+لا يحتاج العامل إلى APK: بعد نشر نسخة Production على Cloudflare Pages (أو نطاق HTTPS معتمد)، يفتح الرابط في Safari ثم يختار **مشاركة → إضافة إلى الشاشة الرئيسية**. يصبح التطبيق أيقونة مستقلة على الهاتف؛ وهذا PWA وليس تطبيق TestFlight. رابط الموقع الفعلي لا يوجد داخل المستودع حتى الآن؛ Cloudflare يعرضه بعد إنشاء مشروع Pages وربطه بالإعدادات أعلاه، ويمكن حينها اعتماد نطاق مثل `https://<اسم-المشروع>.pages.dev` أو نطاق الشركة.
+
 ## ملاحظة
 
 الـ workflow الموجود في `.github/workflows/build-apk.yml` خاص ببناء APK فقط؛ لا يوجد workflow نشر تلقائي إلى Cloudflare في هذا المستودع. Cloudflare Pages يبني عند ربطه مباشرةً بـ GitHub.

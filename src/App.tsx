@@ -12,6 +12,7 @@ import SplashScreen from "./components/SplashScreen";
 import { clearBlockedQueue, queueSummary } from "./lib/db";
 import { startSyncLoop } from "./lib/sync";
 import { DEMO_MODE, SUPABASE_CONFIGURED } from "./lib/supabase";
+import { syncExternalPushIdentity } from "./lib/push";
 
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
@@ -161,7 +162,7 @@ function RejectedRoute() {
 }
 
 export default function App() {
-  const { init, ready } = useAuth();
+  const { init, ready, profile } = useAuth();
   // Show the brand intro on every fresh app launch (never in the smoke/demo harness).
   const [showSplash, setShowSplash] = useState(() => !DEMO_MODE);
   const [splashLeaving, setSplashLeaving] = useState(false);
@@ -171,6 +172,11 @@ export default function App() {
     if (DEMO_MODE || SUPABASE_CONFIGURED) return startSyncLoop();
     return undefined;
   }, [init]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void syncExternalPushIdentity(profile?.id ?? null);
+  }, [ready, profile?.id]);
 
   useEffect(() => {
     if (!showSplash) return;

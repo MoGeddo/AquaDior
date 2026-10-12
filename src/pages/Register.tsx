@@ -5,6 +5,38 @@ import { supabase, DEMO_MODE } from "../lib/supabase";
 import { compressImage, fmtSize } from "../lib/image";
 import { AquaDiorShield } from "../components/AquaDiorLogo";
 
+function registrationErrorMessage(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("email not confirmed")) {
+    return "الحساب لم يُفعّل بعد. لا يلزم العامل بريد إلكتروني؛ على الإدارة تفعيل الحساب ثم يمكن الدخول باسم المستخدم وكلمة السر.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "محاولات كثيرة؛ انتظر قليلًا ثم حاول مرة أخرى.";
+  }
+  if (/already registered|already exists|duplicate key|unique constraint|مسجل|مسجّل|موجود/i.test(message)) {
+    return "اسم المستخدم أو رقم الموبايل مستخدم من قبل. جرّب الدخول بالحساب الموجود أو تواصل مع الإدارة.";
+  }
+  if (/invalid email|unable to validate email/i.test(message)) {
+    return "تعذر إعداد الحساب من الخادم. العامل لا يحتاج إلى بريد إلكتروني؛ راجع الإدارة لإصلاح إعدادات التسجيل.";
+  }
+  if (/database error saving new user|trigger/i.test(message)) {
+    return "الخادم رفض حفظ طلب التسجيل؛ تحتاج الإدارة لمراجعة إعداد تسجيل العمال في قاعدة البيانات.";
+  }
+  if (/failed to fetch|network|fetch error/i.test(message)) {
+    return "تعذر الاتصال بالخادم؛ تحقق من الإنترنت وحاول مرة أخرى.";
+  }
+  if (/row-level security|storage|bucket/i.test(message)) {
+    return "تعذر رفع صورة البطاقة؛ تحتاج الإدارة لمراجعة مخزن الصور وصلاحياته.";
+  }
+
+  const safeMessage = message
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "بيانات الحساب")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+  return safeMessage ? `تعذر إكمال التسجيل: ${safeMessage}` : "تعذر إكمال التسجيل؛ حاول مرة أخرى أو تواصل مع الإدارة.";
+}
+
 export default function Register() {
   const { signUp, refresh } = useAuth();
   const nav = useNavigate();
@@ -56,33 +88,35 @@ export default function Register() {
     if (!card) return setErr("لازم ترفع صورة البطاقة");
 
     setBusy(true);
+    let hasAccount = accountCreated;
     try {
-      // If account creation succeeded but image upload failed, retry the upload without creating a duplicate.
+      // If account creation succeeded but image upload failed, resume the same account.
       let existingAccountSignIn = false;
       if (!accountCreated) {
         const r = await signUp(clean, fullName, username, password);
-        if (r.error) {
-          if (r.accountCreated) {
-            setAccountCreated(true);
-            setErr(r.error);
-            return;
-          }
-          const duplicate = /already registered|already exists|duplicate key/i.test(r.error);
-          if (!duplicate) {
-            setErr(r.error);
-            return;
-          }
-          const { error: loginError } = await supabase.auth.signInWithPassword({
-            email: `${username.trim().toLowerCase()}@ommal.app`,
-            password,
-          });
-          if (loginError) {
-            setErr("يوجد حساب مسجل مسبقًا؛ تحقق من اسم المستخدم وكلمة السر أو تواصل مع الإدارة.");
-            return;
-          }
+        if (r.accountExists) {
+          hasAccount = true;
+          setAccountCreated(true);
           existingAccountSignIn = true;
+        } else if (r.error) {
+          if (r.accountCreated) {
+            hasAccount = true;
+            setAccountCreated(true);
+            setErr(registrationErrorMessage(r.error));
+            return;
+          }
+          const duplicate = /already registered|already exists|duplicate key|unique constraint|مسجل|مسجّل|موجود/i.test(r.error);
+          if (!duplicate) {
+            setErr(registrationErrorMessage(r.error));
+            return;
+          }
+          hasAccount = true;
+          setAccountCreated(true);
+          existingAccountSignIn = true;
+        } else {
+          hasAccount = true;
+          setAccountCreated(true);
         }
-        setAccountCreated(true);
       }
 
       if (!DEMO_MODE) {
@@ -93,10 +127,15 @@ export default function Register() {
             password,
           });
           if (loginError) {
-            const unconfirmed = /email not confirmed/i.test(loginError.message ?? "");
-            throw new Error(unconfirmed
-              ? "الحساب موجود لكنه غير مؤكد. أكّده من Supabase Auth بعد تعطيل تأكيد البريد الاصطناعي، ثم أعد المحاولة."
-              : "تعذر تسجيل الدخول للحساب الحالي؛ تحقق من كلمة السر وإعدادات Supabase.");
+            const message = loginError.message ?? "";
+            if (/email not confirmed/i.test(message)) {
+              setErr("هذا الحساب لم يُفعّل بعد من الإدارة. العامل لا يحتاج بريدًا أو رابط تأكيد؛ اطلب من الإدارة تفعيل الحساب، ثم سجّل الدخول بنفس اسم المستخدم وكلمة السر.");
+            } else if (/invalid login|invalid credentials/i.test(message)) {
+              setErr("اسم المستخدم أو كلمة السر غير صحيحين. إذا كان هذا أول تسجيل، تأكد أن الإدارة لم تسجل هذا الحساب مسبقًا.");
+            } else {
+              setErr(registrationErrorMessage(message));
+            }
+            return;
           }
           existingAccountSignIn = true;
           ({ data: auth, error: authError } = await supabase.auth.getUser());
@@ -154,7 +193,10 @@ export default function Register() {
       await refresh();
       nav("/pending", { replace: true });
     } catch (e: any) {
-      setErr(`الحساب اتعمل، لكن صورة البطاقة لم تُرفع. صحّح المشكلة وحاول مرة أخرى: ${e.message ?? "خطأ غير معروف"}`);
+      const message = registrationErrorMessage(String(e?.message ?? ""));
+      setErr(hasAccount
+        ? `الحساب موجود، لكن لم يكتمل التسجيل أو رفع صورة البطاقة. ${message} أعد المحاولة بنفس اسم المستخدم وكلمة السر.`
+        : message);
     } finally {
       setBusy(false);
     }
@@ -182,7 +224,10 @@ export default function Register() {
             dir="ltr"
             placeholder="01xxxxxxxxx"
             value={phone}
-            onChange={(e) => setPhone(e.target.value.replace(/[^\d]/g, ""))}
+            onChange={(e) => {
+              setPhone(e.target.value.replace(/[^\d]/g, ""));
+              setAccountCreated(false);
+            }}
           />
         </label>
 
@@ -193,7 +238,10 @@ export default function Register() {
             maxLength={120}
             placeholder="اكتب الاسم كاملًا كما في البطاقة"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            onChange={(e) => {
+              setFullName(e.target.value);
+              setAccountCreated(false);
+            }}
           />
         </label>
 
@@ -245,7 +293,7 @@ export default function Register() {
         </div>
 
         <label className="field">
-          <span>اسم المستخدم * (هتدخل بيه بعد كده)</span>
+          <span>اسم المستخدم * (بدون بريد إلكتروني — هتدخل بيه فقط)</span>
           <input
             className="input"
             dir="ltr"
@@ -253,7 +301,10 @@ export default function Register() {
             maxLength={32}
             placeholder="ahmed.ali"
             value={username}
-            onChange={(e) => setUsername(e.target.value.replace(/\s/g, ""))}
+            onChange={(e) => {
+              setUsername(e.target.value.replace(/\s/g, ""));
+              setAccountCreated(false);
+            }}
           />
         </label>
 

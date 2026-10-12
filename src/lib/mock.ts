@@ -98,6 +98,8 @@ if (import.meta.env.VITE_SMOKE_TEST === "1") {
       joined_at: new Date().toISOString(),
     }
   );
+  demoDB.settings.find((setting: any) => setting.key === "app")!.value.gps_enabled = true;
+  (window as any).__smokeDemoDB = demoDB;
   demoDB.notifications.push({
     id: "smoke-notification-assignment",
     user_id: "smoke-worker-1",

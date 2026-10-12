@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import type { AppSettings } from "../../lib/types";
 import { DEFAULT_SETTINGS } from "../../lib/types";
+import { useAuth } from "../../store/auth";
+import ExternalPushSettings from "../../components/ExternalPushSettings";
 
 export default function SettingsPage() {
+  const { profile } = useAuth();
   const [app, setApp] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [tgChat, setTgChat] = useState("");
   const [msg, setMsg] = useState("");
@@ -156,6 +159,8 @@ export default function SettingsPage() {
           حفظ الإعدادات
         </button>
       </div>
+
+      {profile && <ExternalPushSettings userId={profile.id} />}
 
       <div className="card">
         <div className="card-title">إشعارات تليجرام (مجانية)</div>

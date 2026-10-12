@@ -12,6 +12,8 @@ jobs:
   build-test-apk:
     name: Build Staging test APK
     runs-on: ubuntu-latest
+    env:
+      ONESIGNAL_DISABLE_LOCATION: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +36,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_ONESIGNAL_APP_ID: ${{ vars.VITE_ONESIGNAL_APP_ID }}
         run: |
           set -euo pipefail
           if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${VITE_SUPABASE_ANON_KEY:-}" ]]; then
@@ -45,6 +48,9 @@ jobs:
             exit 1
           fi
           export VITE_DEMO_MODE=0
+          if [[ -z "${VITE_ONESIGNAL_APP_ID:-}" ]]; then
+            echo "::warning::VITE_ONESIGNAL_APP_ID is unset; external push notifications will remain disabled in this APK."
+          fi
           npm run build
           test -s dist/index.html
 
