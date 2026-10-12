@@ -131,7 +131,8 @@ jobs:
             "$SDK" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
           fi
 
-      - name: 🔑 تجهيز مفتاح توقيع إصدار موثوق
+      - name: 🔑 فحص مفتاح توقيع إصدار موثوق
+        id: release-signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -139,14 +140,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEYSTORE_ALIAS" ]]; then
-            echo "::error::أنشئ keystore خاصًا وضع KEYSTORE_BASE64 وKEYSTORE_PASSWORD وKEYSTORE_ALIAS في GitHub Actions Secrets. لا يستخدم البناء كلمة مرور افتراضية."
-            exit 1
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::سيُبنى APK تجريبي قابل للتثبيت فقط؛ إصدار APK موقّع يحتاج أسرار keystore."
+            exit 0
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
           test -s release.keystore
           keytool -list -keystore release.keystore -storepass "$KEYSTORE_PASSWORD" -alias "$KEYSTORE_ALIAS" > /dev/null
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
-      - name: ✍️ تفعيل التوقيع في Gradle
+      - name: ✍️ تفعيل توقيع الإصدار في Gradle
+        if: steps.release-signing.outputs.ready == 'true'
         run: |
           cat >> android/app/build.gradle <<'EOF'
 
@@ -170,41 +174,50 @@ jobs:
           echo "--- آخر 25 سطر من build.gradle ---"
           tail -25 android/app/build.gradle
 
-      - name: 📱 بناء الـ APK
+      - name: 📱 بناء APK
         env:
           KS_FILE: ${{ github.workspace }}/release.keystore
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+          HAS_RELEASE_SIGNING: ${{ steps.release-signing.outputs.ready }}
         run: |
           set -euo pipefail
           cd android
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
-          ./gradlew --no-daemon assembleRelease
+          if [[ "$HAS_RELEASE_SIGNING" == "true" ]]; then
+            ./gradlew --no-daemon assembleRelease
+          else
+            echo "تم تخطي إصدار APK الموقّع؛ لا توجد أسرار keystore."
+          fi
 
       - name: تجميع الملفات
         run: |
           set -euo pipefail
           mkdir -p apk
           cp android/app/build/outputs/apk/debug/app-debug.apk apk/AquaDior-debug.apk
-          cp android/app/build/outputs/apk/release/app-release.apk apk/AquaDior.apk
+          if [ -s android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk apk/AquaDior.apk
+          fi
           ls -lh apk/
-          test -s apk/AquaDior.apk
           test -s apk/AquaDior-debug.apk
 
       - name: 🔍 التحقق من محتوى الـ APK
         run: |
           set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
-          APK=apk/AquaDior.apk
+          APK=apk/AquaDior-debug.apk
           test -x "$BT/aapt2"
           test -x "$BT/apksigner"
           echo "===== بيانات التطبيق ====="
           "$BT/aapt2" dump badging "$APK" | head -6
           echo "===== ملفات الويب داخل الـ APK ====="
           unzip -l "$APK" | grep -E "assets/public/(index\.html|assets/)"
-          echo "===== التحقق من التوقيع ====="
+          echo "===== التحقق من توقيع APK المتاح ====="
           "$BT/apksigner" verify --print-certs "$APK" | head -8
+          if [ -s apk/AquaDior.apk ]; then
+            "$BT/apksigner" verify --print-certs apk/AquaDior.apk | head -8
+          fi
           echo "===== الحجم ====="
           ls -lh apk/
 
@@ -216,7 +229,7 @@ jobs:
           retention-days: 30
 
       - name: 📦 نشره على صفحة Releases
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.release-signing.outputs.ready == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest

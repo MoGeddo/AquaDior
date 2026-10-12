@@ -1,6 +1,6 @@
 # بناء APK لأندرويد
 
-يُبنى APK عبر GitHub Actions من `.github/workflows/build-apk.yml`، يدويًا من تبويب **Actions → Build APK → Run workflow** أو عند تحديث `main`. يشغّل المسار `npm ci` ثم lint وSmoke Test وTypeScript/production build؛ أي فشل يوقف إصدار APK بدل تجاوز الخطأ.
+يُبنى APK عبر GitHub Actions من `.github/workflows/build-apk.yml`، يدويًا من تبويب **Actions → Build APK → Run workflow** أو عند تحديث `main` أو فرع `arena/**`. يشغّل المسار `npm ci` ثم lint وSmoke Test وTypeScript/production build؛ أي فشل يوقف البناء. بناء الفروع يرفع Artifact للتنزيل فقط ولا يستبدل إصدار Releases.
 
 ## إصدار التشغيل الحقيقي
 
@@ -10,7 +10,7 @@
 
 ## سر توقيع Android
 
-لأن مفتاح التوقيع وكلمة المرور الافتراضية لا يجوز تخزينهما في Git أو workflow، يتطلب APK إصدارًا موقّعًا الأسرار التالية في **GitHub → Settings → Secrets and variables → Actions → Repository secrets**:
+مفتاح التوقيع وكلمات مروره لا تُحفظ في Git أو workflow. يمكن بناء **APK تصحيح قابل للتثبيت** بدون هذه الأسرار؛ أما إصدار APK موقّع مناسب للتحديث فوق النسخة المنشورة فيحتاج الأسرار التالية في **GitHub → Settings → Secrets and variables → Actions → Repository secrets**:
 
 - `KEYSTORE_BASE64`: ملف keystore مشفّر Base64.
 - `KEYSTORE_PASSWORD`: كلمة مرور keystore.
@@ -34,7 +34,7 @@ base64 -w0 AquaDior-release.keystore
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('AquaDior-release.keystore'))
 ```
 
-انسخ الناتج إلى Secret `KEYSTORE_BASE64` من واجهة GitHub، ولا تحفظه في ملف داخل المستودع. بعد ضبط الأسرار، يصدر workflow ملف `AquaDior.apk` الموقّع وملف `AquaDior-debug.apk` منفصلًا، ويتحقق من وجود ملفات التطبيق ومن التوقيع قبل النشر في GitHub Releases.
+انسخ الناتج إلى Secret `KEYSTORE_BASE64` من واجهة GitHub، ولا تحفظه في ملف داخل المستودع. عند توفر الأسرار يصدر workflow `AquaDior.apk` الموقّع و`AquaDior-debug.apk` منفصلًا، ويتحقق من التوقيع قبل نشر إصدار `main`. عند غيابها، يبني `AquaDior-debug.apk` ويرفعه كـArtifact فقط. نسخة Debug قابلة للتثبيت، لكنها قد تتطلب إزالة النسخة المنشورة أولًا بسبب اختلاف مفتاح التوقيع؛ لا تستخدمها كتحديث فوق نسخة Release.
 
 ## ما لم يُختبر
 
