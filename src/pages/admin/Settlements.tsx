@@ -35,6 +35,7 @@ export default function Settlements() {
   const [loading, setLoading] = useState(true);
   const [busyWorkerId, setBusyWorkerId] = useState<string | null>(null);
   const [view, setView] = useState<SettlementRow | null>(null);
+  const [confirmWorker, setConfirmWorker] = useState<WorkerBalance | null>(null);
   const requestIds = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -70,8 +71,6 @@ export default function Settlements() {
       setError("احسم طلب الصرف المعلّق للعامل قبل التسوية.");
       return;
     }
-    if (!window.confirm(`هل سلّمت المبلغ للعامل «${worker.full_name}» فعليًا؟\nسيُسجل الآن صرف كامل الرصيد العام: ${money(amount)}. هذا الإجراء يسجل الحركة ويخفض الرصيد؛ لا يحوّل أموالًا بنفسه.`)) return;
-
     const requestId = requestIds.current[worker.worker_id] ?? newRequestId();
     requestIds.current[worker.worker_id] = requestId;
     setBusyWorkerId(worker.worker_id);
@@ -84,10 +83,16 @@ export default function Settlements() {
       });
       if (rpcError) throw rpcError;
       delete requestIds.current[worker.worker_id];
+      setConfirmWorker(null);
       setMsg(`تم تسجيل وصرف ${money(Number(data?.net_amount ?? amount))} للعامل ${worker.full_name}، وتم تحديث رصيده العام.`);
       await load();
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر تسجيل التسوية؛ أعد المحاولة بنفس العملية بعد التحقق من القائمة.");
+      const message = String(caught?.message ?? "");
+      if (caught?.code === "PGRST202" || /schema cache/i.test(message)) {
+        setError("دالة التسوية غير موجودة أو لم تُحدّث في Supabase Staging. شغّل تحديث SQL الخاص بالتسوية ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
+      } else {
+        setError(message || "تعذر تسجيل التسوية؛ أعد المحاولة بنفس العملية بعد التحقق من القائمة.");
+      }
     } finally {
       setBusyWorkerId(null);
     }
@@ -114,7 +119,7 @@ export default function Settlements() {
       </div>
 
       {msg && <div className="alert success" role="status">{msg}</div>}
-      {error && <div className="alert error" role="alert">{error}</div>}
+      {error && !confirmWorker && <div className="alert error" role="alert">{error}</div>}
 
       <div className="stats">
         <div className="stat"><div className="label">تسويات مسجلة</div><div className="value">{rows.length}</div></div>
@@ -144,7 +149,15 @@ export default function Settlements() {
                       <td className="num green"><b>{money(worker.balance)}</b></td>
                       <td className="num">{pending ? <span className="badge amber">{money(worker.withdrawn_pending)} معلّقة</span> : <span className="badge green">لا يوجد</span>}</td>
                       <td>
-                        <button className="btn btn-sm btn-success" disabled={Boolean(busyWorkerId) || pending} onClick={() => void payBalance(worker)}>
+                        <button
+                          className="btn btn-sm btn-success"
+                          disabled={Boolean(busyWorkerId) || pending}
+                          onClick={() => {
+                            setError("");
+                            setMsg("");
+                            setConfirmWorker(worker);
+                          }}
+                        >
                           {busyWorkerId === worker.worker_id ? "جاري التحقق والصرف…" : pending ? "احسم الطلب أولًا" : "تسجيل صرف الرصيد"}
                         </button>
                       </td>
@@ -199,6 +212,34 @@ export default function Settlements() {
             <div className="row" style={{ borderTop: "2px solid var(--border)" }}><span><b>المبلغ المصروف</b></span><b className="num" style={{ fontSize: 22, color: "var(--success)" }}>{money(view.net_amount)}</b></div>
           </div>
           <button className="btn btn-block" onClick={() => window.print()}>🖨️ اطبع</button>
+        </Modal>
+      )}
+
+      {confirmWorker && (
+        <Modal
+          title="تأكيد صرف مستحقات العامل"
+          onClose={() => {
+            if (!busyWorkerId) setConfirmWorker(null);
+          }}
+        >
+          <div className="row"><span>العامل</span><b>{confirmWorker.full_name}</b></div>
+          <div className="row"><span>الرصيد الذي سيتم تسجيل صرفه</span><b className="num green">{money(confirmWorker.balance)}</b></div>
+          <p className="small muted mb">
+            أكّد فقط إذا كنت سلّمت المبلغ للعامل فعليًا. هذا يسجل التسوية ويحدّث الرصيد؛ لا يحوّل الأموال بنفسه.
+          </p>
+          {error && <div className="alert error" role="alert">{error}</div>}
+          <div className="flex">
+            <button className="btn" onClick={() => setConfirmWorker(null)} disabled={Boolean(busyWorkerId)}>
+              إلغاء
+            </button>
+            <button
+              className="btn btn-success"
+              onClick={() => void payBalance(confirmWorker)}
+              disabled={Boolean(busyWorkerId)}
+            >
+              {busyWorkerId === confirmWorker.worker_id ? "جاري التحقق والصرف…" : "تأكيد تسجيل الصرف"}
+            </button>
+          </div>
         </Modal>
       )}
     </>

@@ -728,6 +728,10 @@ const settleButton = buttonByText(/تسجيل صرف الرصيد/);
 const formattedSettlementAmount = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(225);
 if (settleButton) {
   click(settleButton);
+  await waitFor(() => $('[role="dialog"]') && /تأكيد صرف مستحقات العامل/.test(text()), { label: "تأكيد التسوية داخل الصفحة" });
+  check("تأكيد التسوية يظهر داخل الصفحة بدل نافذة المتصفح", !!$('[role="dialog"]') && /تأكيد تسجيل الصرف/.test(text()));
+  const confirmSettlementButton = buttonByText(/^تأكيد تسجيل الصرف$/);
+  if (confirmSettlementButton) click(confirmSettlementButton);
   await waitFor(() => /تم تسجيل وصرف/.test(text()) && /اتصرف/.test(text()), { label: "صرف الرصيد العام ذريًا" });
   check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", text().includes(formattedSettlementAmount) && /اتصرف/.test(text()));
 } else check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", false, "زر التسوية غير ظاهر");
