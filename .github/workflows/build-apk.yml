@@ -131,6 +131,12 @@ jobs:
             "$SDK" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
           fi
 
+      - name: استخدام مرآة تنزيل Gradle المباشرة
+        run: |
+          set -euo pipefail
+          sed -i 's#services\.gradle\.org/distributions#downloads.gradle.org/distributions#' android/gradle/wrapper/gradle-wrapper.properties
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
       - name: 🔑 فحص مفتاح توقيع إصدار موثوق
         id: release-signing
         env:
