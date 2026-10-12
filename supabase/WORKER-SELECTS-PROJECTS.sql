@@ -5,10 +5,6 @@
 begin;
 
 do $$
-declare
-  v_required text;
-  v_table_name text;
-  v_column_name text;
 begin
   if to_regclass('public.profiles') is null
      or to_regclass('public.projects') is null
@@ -23,13 +19,21 @@ begin
      or to_regprocedure('public.update_worker_details(uuid,text,text,numeric,boolean,uuid[])') is null then
     raise exception 'Unified attendance, payroll, or notification objects are missing; stop and review the target database before applying this migration.';
   end if;
+end;
+$$;
 
-  -- Older unified installations may not yet have deduction-correction metadata.
-  -- These nullable columns preserve all existing rows and make the archive view safe.
-  execute 'alter table public.deductions add column if not exists voided_at timestamptz';
-  execute 'alter table public.deductions add column if not exists voided_by uuid references public.profiles(id)';
-  execute 'alter table public.deductions add column if not exists void_reason text';
+-- Older unified installations may not yet have deduction-correction metadata.
+-- Add nullable columns between preflight statements so catalog checks below see them.
+alter table public.deductions add column if not exists voided_at timestamptz;
+alter table public.deductions add column if not exists voided_by uuid references public.profiles(id);
+alter table public.deductions add column if not exists void_reason text;
 
+do $$
+declare
+  v_required text;
+  v_table_name text;
+  v_column_name text;
+begin
   foreach v_required in array array[
     'profiles.id', 'profiles.role', 'profiles.status', 'profiles.is_active',
     'profiles.full_name', 'profiles.daily_wage',
