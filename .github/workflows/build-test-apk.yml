@@ -1,0 +1,87 @@
+name: Build AquaDior Staging Test APK
+
+on:
+  push:
+    branches:
+      - arena/d91164ca-aquadior
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-apk:
+    name: Build Staging test APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint and smoke test
+        run: |
+          npm run lint
+          npm run test:smoke
+
+      - name: Build production web app for the confirmed Staging project
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${VITE_SUPABASE_ANON_KEY:-}" ]]; then
+            echo "::error::Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as GitHub Actions repository variables."
+            exit 1
+          fi
+          if [[ "${VITE_SUPABASE_URL%/}" != "https://vklbpjphdmrqyhhjndku.supabase.co" ]]; then
+            echo "::error::VITE_SUPABASE_URL is not the confirmed AquaDior-Staging project URL."
+            exit 1
+          fi
+          export VITE_DEMO_MODE=0
+          npm run build
+          test -s dist/index.html
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install Capacitor Android tools
+        run: |
+          npm i --no-save @capacitor/core@^7 @capacitor/android@^7 @capacitor/cli@^7 @capacitor/assets@^3
+          npx cap add android
+          npx cap sync android
+          npx @capacitor/assets generate --android --iconBackgroundColor '#08090b' --splashBackgroundColor '#08090b'
+
+      - name: Prepare Android SDK
+        run: |
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDK" ]; then
+            yes | "$SDK" --licenses > /dev/null 2>&1 || true
+            "$SDK" "platforms;android-35" "build-tools;35.0.0" > /dev/null 2>&1 || true
+          fi
+
+      - name: Build installable debug APK
+        run: |
+          set -euo pipefail
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          mkdir -p ../apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../apk/AquaDior-Staging-test.apk
+          test -s ../apk/AquaDior-Staging-test.apk
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AquaDior-Staging-test-APK
+          path: apk/AquaDior-Staging-test.apk
+          retention-days: 14
