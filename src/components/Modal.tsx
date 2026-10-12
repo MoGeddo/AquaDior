@@ -4,10 +4,12 @@ export function Modal({
   title,
   children,
   onClose,
+  centered = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  centered?: boolean;
 }) {
   return (
     <div
@@ -17,10 +19,13 @@ export function Modal({
         inset: 0,
         background: "rgba(15,23,42,0.55)",
         display: "flex",
-        alignItems: "flex-end",
+        alignItems: centered ? "center" : "flex-end",
         justifyContent: "center",
         zIndex: 50,
-        paddingTop: "env(safe-area-inset-top)",
+        paddingTop: centered ? "max(16px, env(safe-area-inset-top))" : "env(safe-area-inset-top)",
+        paddingRight: centered ? 16 : 0,
+        paddingBottom: centered ? "max(16px, env(safe-area-inset-bottom))" : 0,
+        paddingLeft: centered ? 16 : 0,
       }}
       onClick={onClose}
     >
@@ -31,7 +36,7 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: "var(--card)",
-          borderRadius: "22px 22px 0 0",
+          borderRadius: centered ? 22 : "22px 22px 0 0",
           width: "100%",
           maxWidth: 520,
           maxHeight: "min(92dvh, 800px)",

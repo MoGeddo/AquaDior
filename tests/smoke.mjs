@@ -729,7 +729,8 @@ const formattedSettlementAmount = new window.Intl.NumberFormat("ar-EG", { maximu
 if (settleButton) {
   click(settleButton);
   await waitFor(() => $('[role="dialog"]') && /تأكيد صرف مستحقات العامل/.test(text()), { label: "تأكيد التسوية داخل الصفحة" });
-  check("تأكيد التسوية يظهر داخل الصفحة بدل نافذة المتصفح", !!$('[role="dialog"]') && /تأكيد تسجيل الصرف/.test(text()));
+  const settlementConfirmationDialog = $('[role="dialog"]');
+  check("تأكيد التسوية يظهر في منتصف الصفحة بدل نافذة المتصفح", !!settlementConfirmationDialog && /تأكيد تسجيل الصرف/.test(text()) && settlementConfirmationDialog.parentElement?.style.alignItems === "center");
   const confirmSettlementButton = buttonByText(/^تأكيد تسجيل الصرف$/);
   if (confirmSettlementButton) click(confirmSettlementButton);
   await waitFor(() => /تم تسجيل وصرف/.test(text()) && /اتصرف/.test(text()), { label: "صرف الرصيد العام ذريًا" });

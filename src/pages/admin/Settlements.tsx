@@ -90,6 +90,8 @@ export default function Settlements() {
       const message = String(caught?.message ?? "");
       if (caught?.code === "PGRST202" || /schema cache/i.test(message)) {
         setError("دالة التسوية غير موجودة أو لم تُحدّث في Supabase Staging. شغّل تحديث SQL الخاص بالتسوية ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
+      } else if (caught?.code === "42703" && /client_request_id/i.test(message)) {
+        setError("قاعدة Staging ينقصها عمود client_request_id. شغّل ملف SQL المُحدّث ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
       } else {
         setError(message || "تعذر تسجيل التسوية؛ أعد المحاولة بنفس العملية بعد التحقق من القائمة.");
       }
@@ -217,6 +219,7 @@ export default function Settlements() {
 
       {confirmWorker && (
         <Modal
+          centered
           title="تأكيد صرف مستحقات العامل"
           onClose={() => {
             if (!busyWorkerId) setConfirmWorker(null);

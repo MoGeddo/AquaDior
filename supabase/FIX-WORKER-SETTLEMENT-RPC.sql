@@ -2,6 +2,19 @@
 -- Safe to re-run: it replaces only this function, not settlement data.
 begin;
 
+-- The settlement RPC uses a nullable project_id for global payouts and an
+-- idempotency key so client retries cannot create duplicate financial entries.
+alter table public.settlements
+  alter column project_id drop not null;
+alter table public.settlements
+  add column if not exists client_request_id uuid;
+create unique index if not exists idx_settlements_client_request
+  on public.settlements (client_request_id)
+  where client_request_id is not null;
+create index if not exists idx_settlements_worker_global_paid
+  on public.settlements (worker_id, paid_at desc)
+  where project_id is null and status = 'paid';
+
 drop function if exists public.create_worker_settlement(uuid, uuid);
 
 create function public.create_worker_settlement(
