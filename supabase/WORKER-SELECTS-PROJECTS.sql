@@ -24,6 +24,12 @@ begin
     raise exception 'Unified attendance, payroll, or notification objects are missing; stop and review the target database before applying this migration.';
   end if;
 
+  -- Older unified installations may not yet have deduction-correction metadata.
+  -- These nullable columns preserve all existing rows and make the archive view safe.
+  execute 'alter table public.deductions add column if not exists voided_at timestamptz';
+  execute 'alter table public.deductions add column if not exists voided_by uuid references public.profiles(id)';
+  execute 'alter table public.deductions add column if not exists void_reason text';
+
   foreach v_required in array array[
     'profiles.id', 'profiles.role', 'profiles.status', 'profiles.is_active',
     'profiles.full_name', 'profiles.daily_wage',
