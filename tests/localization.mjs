@@ -12,10 +12,16 @@ const vite = await createServer({
 });
 
 try {
-  const [{ arabicError }, { fmtDateOnly, fmtDateTime, fmtTime, todayStr }, { localizeDateText }] = await Promise.all([
+  const [
+    { arabicError },
+    { fmtDateOnly, fmtDateTime, fmtTime, todayStr },
+    { arabicTableLabel, localizeDateText },
+    { arabicWeekdays, formatArabicCalendarDate, formatArabicMonthName, formatArabicMonthTitle, monthStartOffset },
+  ] = await Promise.all([
     vite.ssrLoadModule("/src/lib/errors.ts"),
     vite.ssrLoadModule("/src/lib/calc.ts"),
     vite.ssrLoadModule("/src/lib/presentation.ts"),
+    vite.ssrLoadModule("/src/lib/arabicCalendar.ts"),
   ]);
 
   assert.match(arabicError({ message: "Failed to fetch" }, "تعذر التنفيذ."), /تعذر الاتصال/);
@@ -32,8 +38,18 @@ try {
   assert.match(localizedNotification, /[٠-٩]/);
   assert.doesNotMatch(localizedNotification, /2026-10-13/);
   assert.equal(localizeDateText(null), "");
+  assert.equal(arabicTableLabel("owner_attendance"), "حضور المالك");
 
-  console.log("نجحت اختبارات تعريب الأخطاء والتواريخ والوقت: 11/11");
+  assert.deepEqual(
+    Array.from({ length: 12 }, (_, index) => formatArabicMonthName(index + 1)),
+    ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+  );
+  assert.equal(formatArabicMonthTitle(2026, 10), "أكتوبر ٢٠٢٦");
+  assert.equal(formatArabicCalendarDate("2026-10-13"), "١٣ أكتوبر ٢٠٢٦");
+  assert.deepEqual(arabicWeekdays(), ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]);
+  assert.equal(monthStartOffset(2026, 10), 5);
+
+  console.log("نجحت اختبارات التعريب والتاريخ والوقت والتقويم: 17/17");
 } finally {
   await vite.close();
 }

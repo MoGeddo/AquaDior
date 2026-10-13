@@ -208,6 +208,20 @@ create index if not exists idx_attendance_projects_project
   on public.attendance_projects(project_id, attendance_id);
 comment on table public.attendance_projects is
   'Project/activity links for one daily attendance record; never a separate wage or balance.';
+
+-- Owner attendance is an independent presence log, never a worker wage/ledger entry.
+create table if not exists public.owner_attendance (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles(id) on delete restrict,
+  work_date  date not null,
+  created_at timestamptz not null default now(),
+  unique (owner_id, work_date)
+);
+create index if not exists idx_owner_attendance_owner_date
+  on public.owner_attendance(owner_id, work_date desc);
+comment on table public.owner_attendance is
+  'تسجيل أيام حضور المالك في سجل مستقل لا يؤثر في أجور أو مستحقات العمال.';
+
 insert into public.attendance_projects (attendance_id, project_id)
 select a.id, a.project_id
 from public.attendance a

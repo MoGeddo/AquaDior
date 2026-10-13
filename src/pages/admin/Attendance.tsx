@@ -4,6 +4,9 @@ import { fmtDate, fmtDateOnly, fmtTime, money, todayStr } from "../../lib/calc";
 import { arabicError } from "../../lib/errors";
 import type { Profile, Attendance, Project } from "../../lib/types";
 import { useDialog } from "../../components/DialogProvider";
+import { useAuth } from "../../store/auth";
+import ArabicDatePicker from "../../components/ArabicDatePicker";
+import { formatArabicNumber } from "../../lib/arabicCalendar";
 import AppIcon from "../../components/AppIcon";
 
 type ViewMode = "all" | "day" | "month" | "range";
@@ -23,6 +26,13 @@ interface PeriodRow {
   days: number;
   earned: number;
   projects: string[];
+}
+
+interface OwnerAttendanceRecord {
+  id: string;
+  owner_id: string;
+  work_date: string;
+  created_at: string;
 }
 
 const PAGE_SIZE = 1000;
@@ -108,8 +118,25 @@ async function fetchAttendanceProjectLinks(attendanceIds: string[]): Promise<any
   return pages.flat();
 }
 
+async function fetchOwnerAttendance(ownerId: string): Promise<OwnerAttendanceRecord[]> {
+  const records: OwnerAttendanceRecord[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("owner_attendance")
+      .select("id, owner_id, work_date, created_at")
+      .eq("owner_id", ownerId)
+      .order("work_date", { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as OwnerAttendanceRecord[];
+    records.push(...page);
+    if (page.length < PAGE_SIZE) return records;
+  }
+}
+
 export default function Attendance() {
   const { confirm } = useDialog();
+  const { profile } = useAuth();
   const today = todayStr();
   const [mode, setMode] = useState<ViewMode>("day");
   const [date, setDate] = useState(today);
@@ -124,6 +151,65 @@ export default function Attendance() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [ownerAttendanceRows, setOwnerAttendanceRows] = useState<OwnerAttendanceRecord[]>([]);
+  const [ownerAttendanceLoading, setOwnerAttendanceLoading] = useState(true);
+  const [ownerAttendanceBusy, setOwnerAttendanceBusy] = useState(false);
+  const [ownerAttendanceReady, setOwnerAttendanceReady] = useState(false);
+  const [ownerAttendanceMsg, setOwnerAttendanceMsg] = useState("");
+  const profileId = profile?.id ?? null;
+  const profileRole = profile?.role ?? null;
+  const isOwner = profileRole === "owner";
+  const ownerRecordedToday = ownerAttendanceRows.some((row) => row.work_date === today);
+  const ownerDaysThisMonth = ownerAttendanceRows.filter((row) => row.work_date.startsWith(today.slice(0, 7))).length;
+
+  const loadOwnerAttendance = useCallback(async (): Promise<boolean> => {
+    if (!profileId || profileRole !== "owner") {
+      setOwnerAttendanceRows([]);
+      setOwnerAttendanceReady(false);
+      setOwnerAttendanceLoading(false);
+      setOwnerAttendanceMsg("");
+      return false;
+    }
+    setOwnerAttendanceLoading(true);
+    try {
+      const ownerRows = await fetchOwnerAttendance(profileId);
+      setOwnerAttendanceRows(ownerRows);
+      setOwnerAttendanceReady(true);
+      setOwnerAttendanceMsg("");
+      return true;
+    } catch (error: any) {
+      setOwnerAttendanceRows([]);
+      setOwnerAttendanceReady(false);
+      setOwnerAttendanceMsg(arabicError(
+        error,
+        "تعذر تحميل سجل حضور المالك؛ تأكد من الاتصال وتطبيق ترحيل OWNER-ATTENDANCE.sql."
+      ));
+      return false;
+    } finally {
+      setOwnerAttendanceLoading(false);
+    }
+  }, [profileId, profileRole]);
+
+  useEffect(() => { void loadOwnerAttendance(); }, [loadOwnerAttendance]);
+
+  async function registerOwnerAttendance() {
+    if (!isOwner || !ownerAttendanceReady || ownerAttendanceBusy || ownerRecordedToday) return;
+    setOwnerAttendanceBusy(true);
+    setOwnerAttendanceMsg("");
+    try {
+      const { data, error } = await supabase.rpc("register_owner_attendance");
+      if (error) throw error;
+      if (!data) throw new Error("لم يرجع الخادم تأكيد تسجيل الحضور.");
+      const refreshed = await loadOwnerAttendance();
+      setOwnerAttendanceMsg(refreshed
+        ? "تم تسجيل حضورك اليوم. يُسجّل اليوم مرة واحدة ولا يدخل في أجور العمال."
+        : "تم إرسال التسجيل، لكن تعذّر تحديث ملخص الأيام الآن.");
+    } catch (error: any) {
+      setOwnerAttendanceMsg(arabicError(error, "تعذر تسجيل حضورك اليوم."));
+    } finally {
+      setOwnerAttendanceBusy(false);
+    }
+  }
 
   const period = useMemo(() => {
     if (mode === "all") return { from: "", to: "" };
@@ -353,25 +439,25 @@ export default function Attendance() {
               <div className="input" aria-label="مدى سجلات الحضور">من أول سجل حضور حتى الآن</div>
             </div>
           ) : mode === "day" ? (
-            <label className="field" style={{ margin: 0 }}>
+            <div className="field" style={{ margin: 0 }}>
               <span>التاريخ</span>
-              <input className="input" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-            </label>
+              <ArabicDatePicker value={date} onChange={setDate} ariaLabel="اختيار تاريخ الحضور" />
+            </div>
           ) : mode === "month" ? (
-            <label className="field" style={{ margin: 0 }}>
+            <div className="field" style={{ margin: 0 }}>
               <span>الشهر</span>
-              <input className="input" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-            </label>
+              <ArabicDatePicker value={month} onChange={setMonth} mode="month" ariaLabel="اختيار شهر التقرير" />
+            </div>
           ) : (
             <>
-              <label className="field" style={{ margin: 0 }}>
+              <div className="field" style={{ margin: 0 }}>
                 <span>من تاريخ</span>
-                <input className="input" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-              </label>
-              <label className="field" style={{ margin: 0 }}>
+                <ArabicDatePicker value={fromDate} onChange={setFromDate} ariaLabel="اختيار تاريخ بداية الفترة" />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
                 <span>إلى تاريخ</span>
-                <input className="input" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-              </label>
+                <ArabicDatePicker value={toDate} onChange={setToDate} ariaLabel="اختيار تاريخ نهاية الفترة" />
+              </div>
             </>
           )}
           <label className="field" style={{ margin: 0 }}>
@@ -392,6 +478,68 @@ export default function Attendance() {
           </label>
         </div>
       </div>
+
+      {isOwner && (
+        <section className="card owner-attendance-card" aria-label="حضور المالك">
+          <div className="owner-attendance-heading">
+            <div>
+              <div className="card-title">
+                <span className="icon-label"><AppIcon name="calendarCheck" size={18} />حضور المالك — {profile?.full_name}</span>
+              </div>
+              <p className="small muted">
+                سجّل يوم نزولك مع العمال لمتابعة عدد أيام حضورك؛ هذا سجل مستقل ولا يغيّر أجور العمال أو أرصدتهم.
+              </p>
+            </div>
+            <div className="owner-attendance-action">
+              {ownerAttendanceLoading ? (
+                <button type="button" className="btn" disabled>جاري تحميل سجلّك…</button>
+              ) : !ownerAttendanceReady ? (
+                <span className="badge amber">{ownerAttendanceMsg.includes("OWNER-ATTENDANCE.sql") ? "يلزم تطبيق تحديث قاعدة البيانات" : "تعذر تحميل سجل الحضور"}</span>
+              ) : ownerRecordedToday ? (
+                <span className="badge green icon-label"><AppIcon name="circleCheck" size={15} />تم تسجيل حضورك اليوم</span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={ownerAttendanceBusy}
+                  onClick={() => void registerOwnerAttendance()}
+                >
+                  <AppIcon name="calendarCheck" size={17} />
+                  {ownerAttendanceBusy ? "جاري التسجيل…" : "سجّل حضوري اليوم"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="owner-attendance-stats">
+            <div className="owner-attendance-stat">
+              <span>إجمالي أيام حضورك</span>
+              <b>{ownerAttendanceReady ? formatArabicNumber(ownerAttendanceRows.length) : "—"}</b>
+            </div>
+            <div className="owner-attendance-stat">
+              <span>أيام حضورك هذا الشهر</span>
+              <b>{ownerAttendanceReady ? formatArabicNumber(ownerDaysThisMonth) : "—"}</b>
+            </div>
+          </div>
+
+          {ownerAttendanceMsg && (
+            <div className={`alert ${ownerAttendanceMsg.startsWith("تم ") ? "success" : "error"} owner-attendance-message`} role="status">
+              {ownerAttendanceMsg}
+            </div>
+          )}
+          {ownerAttendanceReady && ownerAttendanceRows.length > 0 && (
+            <div className="owner-attendance-history">
+              <b>آخر أيام الحضور:</b>
+              {ownerAttendanceRows.slice(0, 5).map((row) => (
+                <span className="badge" key={row.id}>{fmtDateOnly(row.work_date)}</span>
+              ))}
+            </div>
+          )}
+          {ownerAttendanceReady && ownerAttendanceRows.length === 0 && (
+            <p className="small muted owner-attendance-empty">لم تُسجّل أيام حضور للمالك بعد.</p>
+          )}
+        </section>
+      )}
 
       {msg && <div className={`alert ${msg.startsWith("خطأ") || msg.startsWith("تعذر") || invalidRange ? "error" : "success"}`} role="status">{msg}</div>}
       {loading && <div className="empty" role="status">جاري تحميل سجلات الحضور…</div>}

@@ -46,6 +46,7 @@ $$;
 
 drop trigger if exists trg_audit_profiles on public.profiles;
 drop trigger if exists trg_audit_attendance on public.attendance;
+drop trigger if exists trg_audit_owner_attendance on public.owner_attendance;
 drop trigger if exists trg_audit_withdrawals on public.withdrawals;
 drop trigger if exists trg_audit_deductions on public.deductions;
 drop trigger if exists trg_audit_sites on public.sites;
@@ -58,6 +59,8 @@ drop trigger if exists trg_audit_settlements on public.settlements;
 create trigger trg_audit_profiles after insert or update or delete on public.profiles
   for each row execute function public.log_audit();
 create trigger trg_audit_attendance after insert or update or delete on public.attendance
+  for each row execute function public.log_audit();
+create trigger trg_audit_owner_attendance after insert or update or delete on public.owner_attendance
   for each row execute function public.log_audit();
 create trigger trg_audit_withdrawals after insert or update or delete on public.withdrawals
   for each row execute function public.log_audit();

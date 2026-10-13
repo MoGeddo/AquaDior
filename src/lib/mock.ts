@@ -4,6 +4,8 @@
  * التفعيل يحتاج VITE_DEMO_MODE=1 صراحةً؛ لا تستخدمه لتشغيل بيانات حقيقية.
  */
 
+import { todayStr } from "./calc";
+
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export const demoDB: any = {
@@ -43,6 +45,7 @@ export const demoDB: any = {
   site_workers: [] as any[],
   attendance: [] as any[],
   attendance_projects: [] as any[],
+  owner_attendance: [] as any[],
   withdrawals: [] as any[],
   deductions: [] as any[],
   settlements: [] as any[],
@@ -227,6 +230,7 @@ const NESTED_TABLES: Record<string, () => any[]> = {
   projects: () => demoDB.projects,
   attendance: () => demoDB.attendance.filter(Boolean),
   attendance_projects: () => demoDB.attendance_projects,
+  owner_attendance: () => demoDB.owner_attendance,
   withdrawals: () => demoDB.withdrawals,
   deductions: () => demoDB.deductions,
 };
@@ -593,6 +597,24 @@ const rpcMock = async (fn: string, args: any) => {
       notifications: demoDB.notifications.length,
       settlements: demoDB.settlements.length,
     }, error: null };
+  }
+
+  if (fn === "register_owner_attendance") {
+    const owner = demoDB.profiles.find((profile: any) =>
+      profile.id === currentUser?.id && profile.role === "owner"
+      && profile.status === "active" && profile.is_active !== false
+    );
+    if (!owner) return { data: null, error: { message: "تسجيل حضور المالك متاح لحساب المالك النشط فقط" } };
+    const workDate = todayStr();
+    const existing = demoDB.owner_attendance.find((row: any) => row.owner_id === owner.id && row.work_date === workDate);
+    if (existing) return { data: existing.id, error: null };
+    const record = { id: uid(), owner_id: owner.id, work_date: workDate, created_at: now() };
+    demoDB.owner_attendance.push(record);
+    demoDB.audit_log.unshift({
+      id: uid(), table_name: "owner_attendance", record_id: record.id, action: "insert",
+      old_data: null, new_data: record, changed_by: owner.id, changed_at: record.created_at,
+    });
+    return { data: record.id, error: null };
   }
 
   if (fn === "developer_delete_worker") {

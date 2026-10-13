@@ -217,6 +217,20 @@ create index if not exists idx_attendance_projects_project
   on public.attendance_projects(project_id, attendance_id);
 comment on table public.attendance_projects is
   'Project/activity links for one daily attendance record; never a separate wage or balance.';
+
+-- Owner attendance is an independent presence log, never a worker wage/ledger entry.
+create table if not exists public.owner_attendance (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles(id) on delete restrict,
+  work_date  date not null,
+  created_at timestamptz not null default now(),
+  unique (owner_id, work_date)
+);
+create index if not exists idx_owner_attendance_owner_date
+  on public.owner_attendance(owner_id, work_date desc);
+comment on table public.owner_attendance is
+  'تسجيل أيام حضور المالك في سجل مستقل لا يؤثر في أجور أو مستحقات العمال.';
+
 insert into public.attendance_projects (attendance_id, project_id)
 select a.id, a.project_id
 from public.attendance a
@@ -654,6 +668,15 @@ create policy "ap admin write" on public.attendance_projects for all
 revoke all on table public.attendance_projects from public, anon, authenticated;
 grant select on table public.attendance_projects to authenticated;
 
+-- Owner presence remains private to its owner and the active administration.
+alter table public.owner_attendance enable row level security;
+drop policy if exists "owner attendance read self or admin" on public.owner_attendance;
+create policy "owner attendance read self or admin"
+  on public.owner_attendance for select to authenticated
+  using (owner_id = auth.uid() or public.is_admin());
+revoke all on table public.owner_attendance from public, anon, authenticated;
+grant select on table public.owner_attendance to authenticated;
+
 -- ---------- WITHDRAWALS ----------
 alter table public.withdrawals enable row level security;
 
@@ -840,6 +863,7 @@ $$;
 
 drop trigger if exists trg_audit_profiles on public.profiles;
 drop trigger if exists trg_audit_attendance on public.attendance;
+drop trigger if exists trg_audit_owner_attendance on public.owner_attendance;
 drop trigger if exists trg_audit_withdrawals on public.withdrawals;
 drop trigger if exists trg_audit_deductions on public.deductions;
 drop trigger if exists trg_audit_sites on public.sites;
@@ -852,6 +876,8 @@ drop trigger if exists trg_audit_settlements on public.settlements;
 create trigger trg_audit_profiles after insert or update or delete on public.profiles
   for each row execute function public.log_audit();
 create trigger trg_audit_attendance after insert or update or delete on public.attendance
+  for each row execute function public.log_audit();
+create trigger trg_audit_owner_attendance after insert or update or delete on public.owner_attendance
   for each row execute function public.log_audit();
 create trigger trg_audit_withdrawals after insert or update or delete on public.withdrawals
   for each row execute function public.log_audit();
@@ -2671,6 +2697,51 @@ as $$
   select public.admin_register_attendance_multi(p_worker_id, p_work_date, p_project_ids);
 $$;
 
+-- تسجيل يوم حضور المالك في سجل مستقل، مع منع التكرار وعدم إنشاء مستحقات مالية.
+create or replace function public.register_owner_attendance()
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  v_owner_id uuid := auth.uid();
+  v_today date := (now() at time zone 'Africa/Cairo')::date;
+  v_attendance_id uuid;
+begin
+  if v_owner_id is null then
+    raise exception 'يجب تسجيل الدخول أولًا';
+  end if;
+
+  perform 1
+  from public.profiles p
+  where p.id = v_owner_id
+    and p.role = 'owner'
+    and p.status = 'active'
+    and p.is_active = true
+  for update;
+  if not found then
+    raise exception 'تسجيل الحضور متاح لحساب المالك النشط فقط';
+  end if;
+
+  insert into public.owner_attendance (owner_id, work_date)
+  values (v_owner_id, v_today)
+  on conflict (owner_id, work_date) do nothing
+  returning id into v_attendance_id;
+
+  if v_attendance_id is null then
+    select oa.id into v_attendance_id
+    from public.owner_attendance oa
+    where oa.owner_id = v_owner_id and oa.work_date = v_today;
+  end if;
+
+  if v_attendance_id is null then
+    raise exception 'تعذر تأكيد سجل حضور اليوم؛ حاول مرة أخرى';
+  end if;
+  return v_attendance_id;
+end;
+$$;
+
 create or replace function public.add_attendance_project(
   p_attendance_id uuid,
   p_project_id uuid
@@ -2967,6 +3038,7 @@ revoke all on function public.add_attendance_site(uuid, uuid) from public, anon,
 revoke all on function public.register_attendance_multi(uuid, date, uuid[], numeric, numeric, text) from public, anon, authenticated;
 revoke all on function public.admin_register_attendance_multi(uuid, date, uuid[]) from public, anon, authenticated;
 revoke all on function public.admin_register_attendance(uuid, date, uuid[]) from public, anon, authenticated;
+revoke all on function public.register_owner_attendance() from public, anon, authenticated;
 revoke all on function public.add_attendance_project(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.register_withdrawal(uuid, numeric, text, uuid, uuid) from public, anon, authenticated;
 revoke all on function public.save_worker_admin_details(uuid, text, text, numeric, boolean, uuid[]) from public, anon, authenticated;
@@ -2982,6 +3054,7 @@ revoke all on table public.project_archive from anon;
 grant execute on function public.register_attendance_multi(uuid, date, uuid[], numeric, numeric, text) to authenticated;
 grant execute on function public.admin_register_attendance_multi(uuid, date, uuid[]) to authenticated;
 grant execute on function public.admin_register_attendance(uuid, date, uuid[]) to authenticated;
+grant execute on function public.register_owner_attendance() to authenticated;
 grant execute on function public.add_attendance_project(uuid, uuid) to authenticated;
 grant execute on function public.register_withdrawal(uuid, numeric, text, uuid, uuid) to authenticated;
 grant execute on function public.save_worker_admin_details(uuid, text, text, numeric, boolean, uuid[]) to authenticated;

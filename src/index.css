@@ -429,6 +429,15 @@ html.capacitor-android .topbar {
   .notification-toolbar > span { flex: 1 1 100%; }
   .notification-toolbar-actions { width: 100%; flex-wrap: wrap; }
   .notification-toolbar-actions .btn { flex: 1 1 120px; }
+  .owner-attendance-heading { align-items: stretch; }
+  .owner-attendance-action { width: 100%; }
+  .owner-attendance-action > .btn { width: 100%; justify-content: center; }
+  .owner-attendance-stats { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 360px) {
+  .arabic-calendar-popover { padding: 8px; }
+  .arabic-calendar-day, .arabic-calendar-empty { min-height: 34px; }
+  .arabic-calendar-nav { min-width: 38px; min-height: 38px; }
 }
 .worker-project-choice { min-height: 48px; padding-inline: 15px; }
 .worker-project-choices { gap: 8px; }
@@ -536,6 +545,104 @@ html.capacitor-android .topbar {
   border-color: var(--gold-500);
   box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.18);
 }
+.arabic-date-picker { position: relative; width: 100%; min-width: 0; }
+.arabic-date-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  text-align: start;
+  cursor: pointer;
+}
+.arabic-date-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arabic-date-trigger > .app-icon { flex: 0 0 auto; color: var(--gold-700); }
+.arabic-date-trigger:disabled { cursor: not-allowed; opacity: 0.6; }
+.arabic-calendar-popover {
+  position: absolute;
+  z-index: 300;
+  inset-inline-end: 0;
+  top: calc(100% + 6px);
+  width: min(324px, calc(100vw - 24px));
+  padding: 12px;
+  color: var(--ink-900);
+  background: var(--card);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-lg);
+}
+.arabic-calendar-toolbar {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.arabic-calendar-toolbar h3 { font-size: 15px; font-weight: 800; line-height: 1.4; }
+.arabic-calendar-nav {
+  display: inline-grid;
+  place-items: center;
+  min-width: 42px;
+  min-height: 42px;
+  color: var(--ink-800);
+  background: var(--ink-50);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--r-sm);
+  font-size: 25px;
+  line-height: 1;
+}
+.arabic-calendar-nav:hover, .arabic-calendar-day:hover, .arabic-calendar-month:hover { background: var(--gold-100); }
+.arabic-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  text-align: center;
+}
+.arabic-calendar-weekday {
+  display: grid;
+  place-items: center;
+  min-height: 30px;
+  color: var(--ink-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+.arabic-calendar-empty { min-height: 38px; }
+.arabic-calendar-day, .arabic-calendar-month {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 38px;
+  padding: 2px;
+  color: var(--ink-800);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.arabic-calendar-day.is-today, .arabic-calendar-month.is-today { border-color: var(--gold-500); }
+.arabic-calendar-day.is-selected, .arabic-calendar-month.is-selected {
+  color: #fff;
+  background: var(--gold-700);
+  border-color: var(--gold-700);
+}
+.arabic-calendar-month-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.arabic-calendar-month { min-height: 44px; font-size: 13px; }
+.arabic-calendar-footer { display: flex; justify-content: flex-start; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ink-100); }
+.arabic-calendar-today { min-height: 40px; padding: 4px 12px; color: var(--blue-600); border-radius: var(--r-sm); font-weight: 800; }
+.arabic-calendar-today:hover { background: var(--blue-50); }
+.owner-attendance-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.owner-attendance-heading .card-title { margin-bottom: 4px; }
+.owner-attendance-action { display: flex; align-items: center; }
+.owner-attendance-action .btn { min-height: 46px; gap: 8px; }
+.owner-attendance-stats { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 10px; max-width: 520px; margin-top: 16px; }
+.owner-attendance-stat { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; padding: 10px 12px; background: var(--ink-50); border: 1px solid var(--ink-100); border-radius: var(--r-md); }
+.owner-attendance-stat span { color: var(--ink-600); font-size: 13px; font-weight: 700; }
+.owner-attendance-stat b { color: var(--gold-800); font-size: 21px; }
+.owner-attendance-history { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: var(--ink-600); font-size: 13px; }
+.owner-attendance-empty { margin-top: 10px; }
+.owner-attendance-message { margin-top: 12px; margin-bottom: 0; }
 .search-field {
   position: relative;
   display: flex;

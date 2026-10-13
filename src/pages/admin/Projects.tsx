@@ -6,6 +6,7 @@ import { arabicError } from "../../lib/errors";
 import { Modal } from "../../components/Modal";
 import { useDialog } from "../../components/DialogProvider";
 import { useAuth } from "../../store/auth";
+import ArabicDatePicker from "../../components/ArabicDatePicker";
 import AppIcon from "../../components/AppIcon";
 
 /** CSV escaping plus formula-injection protection for user-controlled fields. */
@@ -702,15 +703,10 @@ function ProjectForm({ onDone }: { onDone: () => void }) {
         <span>وصف (اختياري)</span>
         <input className="input" value={desc} onChange={(e) => setDesc(e.target.value)} />
       </label>
-      <label className="field">
+      <div className="field">
         <span>تاريخ البداية</span>
-        <input
-          className="input"
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-        />
-      </label>
+        <ArabicDatePicker value={start} onChange={setStart} ariaLabel="اختيار تاريخ بداية المشروع" />
+      </div>
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         حفظ
       </button>

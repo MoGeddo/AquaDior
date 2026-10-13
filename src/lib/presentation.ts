@@ -4,6 +4,7 @@ const DATABASE_TABLE_LABELS: Record<string, string> = {
   profiles: "الحسابات",
   attendance: "سجلات الحضور",
   attendance_projects: "روابط الحضور بالمشاريع",
+  owner_attendance: "حضور المالك",
   withdrawals: "طلبات السحب",
   deductions: "سجل الخصومات",
   settlements: "التسويات",

@@ -445,6 +445,23 @@ if (ownerOutBtn) {
   click(ownerOutBtn);
   await waitFor(() => window.location.pathname === "/login", { timeout: 8000, label: "خروج المالك" });
 }
+await login("mahmoud.abdin", "demo-only-pass");
+await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "الدخول كمالك محمود عبدين", timeout: 12000 });
+setPath("/admin/attendance");
+await waitFor(() => window.location.pathname === "/admin/attendance" && !!$(".owner-attendance-card") && !!buttonByText(/^سجّل حضوري اليوم$/), { label: "ميزة حضور المالك محمود عبدين" });
+check("تسجيل حضور المالك ظاهر لحساب المالك محمود عبدين", text().includes("حضور المالك — محمود عبدين") && !!$(".owner-attendance-card"));
+const ownerAttendanceButton = buttonByText(/^سجّل حضوري اليوم$/);
+if (ownerAttendanceButton) click(ownerAttendanceButton);
+await waitFor(() => window.__smokeDemoDB?.owner_attendance?.some((row) => row.owner_id === "demo-owner-2"), { label: "تسجيل حضور المالك في السجل المستقل" });
+check("حضور المالك يُسجّل مرة واحدة في جدول مستقل", window.__smokeDemoDB?.owner_attendance?.filter((row) => row.owner_id === "demo-owner-2").length === 1);
+await waitFor(() => text().includes("تم تسجيل حضورك اليوم") && /أيام حضورك هذا الشهر/.test(text()), { label: "تحديث ملخص أيام حضور المالك" });
+check("ملخص حضور المالك يعرض إجمالي الأيام والشهر الحالي", /إجمالي أيام حضورك/.test(text()) && /أيام حضورك هذا الشهر/.test(text()));
+check("حضور المالك لا يُضاف إلى سجلات أجور العمال", window.__smokeDemoDB?.attendance?.every((row) => row.worker_id !== "demo-owner-2"));
+const mahmoudOutBtn = buttonByText(/^خروج$/);
+if (mahmoudOutBtn) {
+  click(mahmoudOutBtn);
+  await waitFor(() => window.location.pathname === "/login", { timeout: 8000, label: "خروج مالك محمود" });
+}
 await login("mostafageddo", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "الدخول كمطوّر", timeout: 12000 });
 setPath("/admin/developer");
@@ -724,9 +741,18 @@ check("لوحة الإدارة تفصل الطلب المعلّق ولا تعر�
 // ---- تقرير الشهر/الفترة: يوم العامل يُحسب مرة واحدة رغم تعدد المشاريع ----
 setPath("/admin/attendance");
 await waitFor(() => window.location.pathname === "/admin/attendance" && !!buttonByText(/^الشهر$/), { label: "خيارات تقرير الحضور" });
+check("زر حضور المالك لا يظهر لحساب المطوّر", !$(".owner-attendance-card"));
 const monthViewButton = buttonByText(/^الشهر$/);
 if (monthViewButton) click(monthViewButton);
 await waitFor(() => /ملخص شهر/.test(text()) && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "ملخص حضور الشهر" });
+const monthPickerTrigger = $('button[aria-label^="اختيار شهر التقرير"]');
+if (monthPickerTrigger) {
+  click(monthPickerTrigger);
+  await waitFor(() => $('[role="dialog"][aria-label="اختيار شهر باللغة العربية"]') && /يناير/.test(text()), { label: "فتح اختيار الشهر العربي" });
+  check("تقويم اختيار الشهر يعرض أسماء الشهور بالعربية", /يناير/.test(text()) && /أكتوبر/.test(text()) && !/(January|February|October)/.test(text()));
+  window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await waitFor(() => !$('[role="dialog"][aria-label="اختيار شهر باللغة العربية"]'), { label: "إغلاق اختيار الشهر" });
+} else check("تقويم اختيار الشهر يعرض أسماء الشهور بالعربية", false, "زر اختيار الشهر العربي غير ظاهر");
 const firstWorkerMonthRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
 check("ملخص الشهر يعرض العامل وأيام حضوره المسجلة", firstWorkerMonthRow?.querySelectorAll("td")[1]?.textContent?.trim() === formattedOneDay);
 check("اليومية لا تتكرر رغم ربط اليوم بأربعة مشاريع", firstWorkerMonthRow?.querySelectorAll("td")[2]?.textContent?.includes(formattedDailyWage));
@@ -741,7 +767,7 @@ if (attendanceProjectFilter) {
 }
 const customPeriodButton = buttonByText(/^فترة مخصصة$/);
 if (customPeriodButton) click(customPeriodButton);
-await waitFor(() => $$("input[type=\"date\"]").length === 2 && /لا نستنتج أيام الغياب/.test(text()), { label: "تقرير الفترة المخصصة وحساب الحضور فقط" });
+await waitFor(() => $$(".arabic-date-trigger").length === 2 && /لا نستنتج أيام الغياب/.test(text()), { label: "تقرير الفترة المخصصة وحساب الحضور فقط" });
 check("الحضور يوفر فترة مخصصة ولا يستنتج غيابًا دون جدول عمل", true);
 
 const allAttendanceButton = buttonByText(/^الكل$/);
@@ -752,11 +778,19 @@ check("وضع الكل يعرض تاريخ العامل ويحسب اليومي�
 
 const selectedDayButton = buttonByText(/^اليوم المحدد$/);
 if (selectedDayButton) click(selectedDayButton);
-await waitFor(() => !!$("input[type=\"date\"]") && !!buttonByText(/^اليوم المحدد$/) && !!$("[role=\"region\"][aria-label=\"جدول حضور العمال\"]"), { label: "عرض اليوم المحدد" });
+await waitFor(() => !!$('button[aria-label^="اختيار تاريخ الحضور"]') && !!buttonByText(/^اليوم المحدد$/) && !!$("[role=\"region\"][aria-label=\"جدول حضور العمال\"]"), { label: "عرض اليوم المحدد" });
 const selectedDayHeader = $(".card .card-title");
 const recordedTimeCell = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"))?.querySelectorAll("td")[4]?.textContent || "";
 check("اليوم المحدد يعرض التاريخ بالأرقام العربية", /[٠-٩]/.test(selectedDayHeader?.textContent || ""));
 check("وقت الحضور بصيغة ١٢ ساعة مع صباحًا أو مساءً", /(?:صباحًا|مساءً)/.test(recordedTimeCell));
+const datePickerTrigger = $('button[aria-label^="اختيار تاريخ الحضور"]');
+if (datePickerTrigger) {
+  click(datePickerTrigger);
+  await waitFor(() => $('[role="dialog"][aria-label="اختيار تاريخ باللغة العربية"]') && /أكتوبر/.test(text()), { label: "فتح التقويم العربي" });
+  check("تقويم التاريخ يعرض الشهر وأيام الأسبوع بالعربية", /أكتوبر/.test(text()) && /سبت/.test(text()) && !/(January|February|October|Sunday)/.test(text()));
+  window.document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await waitFor(() => !$('[role="dialog"][aria-label="اختيار تاريخ باللغة العربية"]'), { label: "إغلاق التقويم العربي" });
+} else check("تقويم التاريخ يعرض الشهر وأيام الأسبوع بالعربية", false, "زر اختيار التاريخ العربي غير ظاهر");
 
 setPath("/admin/withdrawals");
 await waitFor(() => window.location.pathname === "/admin/withdrawals" && !!$('input[aria-label="البحث في طلبات السحب"]') && !!$("[role='region'][aria-label='جدول طلبات السحب'][tabindex='0']") && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "طلب السحب المعلّق للمالك" });

@@ -223,6 +223,15 @@ create policy "ap admin write" on public.attendance_projects for all
 revoke all on table public.attendance_projects from public, anon, authenticated;
 grant select on table public.attendance_projects to authenticated;
 
+-- Owner presence remains private to its owner and the active administration.
+alter table public.owner_attendance enable row level security;
+drop policy if exists "owner attendance read self or admin" on public.owner_attendance;
+create policy "owner attendance read self or admin"
+  on public.owner_attendance for select to authenticated
+  using (owner_id = auth.uid() or public.is_admin());
+revoke all on table public.owner_attendance from public, anon, authenticated;
+grant select on table public.owner_attendance to authenticated;
+
 -- ---------- WITHDRAWALS ----------
 alter table public.withdrawals enable row level security;
 

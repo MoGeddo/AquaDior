@@ -1098,6 +1098,51 @@ as $$
   select public.admin_register_attendance_multi(p_worker_id, p_work_date, p_project_ids);
 $$;
 
+-- تسجيل يوم حضور المالك في سجل مستقل، مع منع التكرار وعدم إنشاء مستحقات مالية.
+create or replace function public.register_owner_attendance()
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  v_owner_id uuid := auth.uid();
+  v_today date := (now() at time zone 'Africa/Cairo')::date;
+  v_attendance_id uuid;
+begin
+  if v_owner_id is null then
+    raise exception 'يجب تسجيل الدخول أولًا';
+  end if;
+
+  perform 1
+  from public.profiles p
+  where p.id = v_owner_id
+    and p.role = 'owner'
+    and p.status = 'active'
+    and p.is_active = true
+  for update;
+  if not found then
+    raise exception 'تسجيل الحضور متاح لحساب المالك النشط فقط';
+  end if;
+
+  insert into public.owner_attendance (owner_id, work_date)
+  values (v_owner_id, v_today)
+  on conflict (owner_id, work_date) do nothing
+  returning id into v_attendance_id;
+
+  if v_attendance_id is null then
+    select oa.id into v_attendance_id
+    from public.owner_attendance oa
+    where oa.owner_id = v_owner_id and oa.work_date = v_today;
+  end if;
+
+  if v_attendance_id is null then
+    raise exception 'تعذر تأكيد سجل حضور اليوم؛ حاول مرة أخرى';
+  end if;
+  return v_attendance_id;
+end;
+$$;
+
 create or replace function public.add_attendance_project(
   p_attendance_id uuid,
   p_project_id uuid
@@ -1394,6 +1439,7 @@ revoke all on function public.add_attendance_site(uuid, uuid) from public, anon,
 revoke all on function public.register_attendance_multi(uuid, date, uuid[], numeric, numeric, text) from public, anon, authenticated;
 revoke all on function public.admin_register_attendance_multi(uuid, date, uuid[]) from public, anon, authenticated;
 revoke all on function public.admin_register_attendance(uuid, date, uuid[]) from public, anon, authenticated;
+revoke all on function public.register_owner_attendance() from public, anon, authenticated;
 revoke all on function public.add_attendance_project(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.register_withdrawal(uuid, numeric, text, uuid, uuid) from public, anon, authenticated;
 revoke all on function public.save_worker_admin_details(uuid, text, text, numeric, boolean, uuid[]) from public, anon, authenticated;
@@ -1409,6 +1455,7 @@ revoke all on table public.project_archive from anon;
 grant execute on function public.register_attendance_multi(uuid, date, uuid[], numeric, numeric, text) to authenticated;
 grant execute on function public.admin_register_attendance_multi(uuid, date, uuid[]) to authenticated;
 grant execute on function public.admin_register_attendance(uuid, date, uuid[]) to authenticated;
+grant execute on function public.register_owner_attendance() to authenticated;
 grant execute on function public.add_attendance_project(uuid, uuid) to authenticated;
 grant execute on function public.register_withdrawal(uuid, numeric, text, uuid, uuid) to authenticated;
 grant execute on function public.save_worker_admin_details(uuid, text, text, numeric, boolean, uuid[]) to authenticated;
