@@ -1,60 +1,104 @@
 -- ============================================================
 --  WORKER APP — SCHEMA
---  تطبيق حضور ومصاريف العمال
---  شغّل الملف ده في Supabase → SQL Editor
+--  شغّل الملف ده أولاً في Supabase → SQL Editor
 -- ============================================================
 
 create extension if not exists "pgcrypto";
 
--- ---------- 1. PROFILES (كل المستخدمين) ----------
-create table if not exists profiles (
-  id            uuid primary key references auth.users on delete cascade,
-  full_name     text not null,
-  phone         text unique,
-  username      text unique,
-  role          text not null default 'worker' check (role in ('owner','manager','developer','worker')),
-  daily_wage    numeric(10,2) not null default 0,
+-- ---------- 1. PROFILES ----------
+create table if not exists public.profiles (
+  id              uuid primary key references auth.users on delete cascade,
+  full_name       text not null,
+  phone           text unique,
+  username        text unique,
+  role            text not null default 'worker'
+                    check (role in ('owner','manager','developer','worker')),
+  daily_wage      numeric(10,2) not null default 0 check (daily_wage >= 0),
   default_site_id uuid,
-  is_active     boolean not null default true,
-  -- ===== حقول التسجيل الأولى =====
-  status        text not null default 'active'
-                  check (status in ('pending','active','rejected','suspended')),
-  id_card_url   text,                 -- صورة البطاقة (Supabase Storage)
-  approved_by   uuid references profiles(id),
-  approved_at   timestamptz,
-  reject_reason text,
-  -- ===================================
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now()
+  is_active       boolean not null default true,
+  status          text not null default 'active'
+                    constraint profiles_status_valid
+                    check (status in ('pending','active','rejected','suspended')),
+  id_card_url     text,
+  approved_by     uuid references public.profiles(id),
+  approved_at     timestamptz,
+  reject_reason   text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
 );
 
-create index if not exists idx_profiles_status on profiles(status) where status = 'pending';
+-- Upgrade-safe columns/constraints for installations created by older versions.
+alter table public.profiles
+  add column if not exists status text not null default 'active';
+alter table public.profiles
+  add column if not exists id_card_url text;
+alter table public.profiles
+  add column if not exists approved_by uuid references public.profiles(id);
+alter table public.profiles
+  add column if not exists approved_at timestamptz;
+alter table public.profiles
+  add column if not exists reject_reason text;
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_status_valid'
+  ) then
+    alter table public.profiles
+      add constraint profiles_status_valid
+      check (status in ('pending','active','rejected','suspended')) not valid;
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_daily_wage_nonnegative'
+  ) then
+    alter table public.profiles
+      add constraint profiles_daily_wage_nonnegative check (daily_wage >= 0) not valid;
+  end if;
+end $$;
+create index if not exists idx_profiles_status
+  on public.profiles(status) where status = 'pending';
 
--- ---------- Storage: صور البطاقات ----------
-insert into storage.buckets (id, name, public, file_size_limit)
-values ('id-cards', 'id-cards', false, 5242880)
-on conflict (id) do nothing;
+-- ---------- Storage: private ID-card images ----------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('id-cards', 'id-cards', false, 5242880, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update set
+  name = excluded.name,
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
--- ---------- 2. PROJECTS (المشاريع) ----------
-create table if not exists projects (
+-- ---------- 2. PROJECTS ----------
+create table if not exists public.projects (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   description text,
   status      text not null default 'active' check (status in ('active','closed')),
   start_date  date,
   end_date    date,
-  created_by  uuid references profiles(id),
+  address     text,
+  lat         numeric(10,7),
+  lng         numeric(10,7),
+  created_by  uuid references public.profiles(id),
   created_at  timestamptz not null default now(),
   closed_at   timestamptz,
-  -- الأرشيف: المشروع يتقفل بس بياناته تفضل في الداتابيز للأبد
   archived_at timestamptz,
-  archived_by uuid references profiles(id)
+  archived_by uuid references public.profiles(id)
 );
+alter table public.projects add column if not exists address text;
+alter table public.projects add column if not exists lat numeric(10,7);
+alter table public.projects add column if not exists lng numeric(10,7);
+alter table public.projects add column if not exists closed_at timestamptz;
+alter table public.projects add column if not exists archived_at timestamptz;
+alter table public.projects add column if not exists archived_by uuid;
+comment on table public.projects is
+  'Canonical active project/worksite; workers choose one or more open projects when recording daily attendance.';
 
--- ---------- 3. SITES (المواقع) ----------
-create table if not exists sites (
+-- ---------- 3. LEGACY SITES (retained for a guarded migration; not used by the app) ----------
+create table if not exists public.sites (
   id         uuid primary key default gen_random_uuid(),
-  project_id uuid references projects(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete restrict,
   name       text not null,
   address    text,
   lat        numeric(10,7),
@@ -62,104 +106,195 @@ create table if not exists sites (
   is_active  boolean not null default true,
   created_at timestamptz not null default now()
 );
+comment on table public.sites is
+  'Deprecated legacy location table. No new application activity is written here.';
 
-alter table profiles
-  drop constraint if exists profiles_default_site_fkey;
-alter table profiles
+alter table public.profiles drop constraint if exists profiles_default_site_fkey;
+alter table public.profiles
   add constraint profiles_default_site_fkey
-  foreign key (default_site_id) references sites(id) on delete set null;
+  foreign key (default_site_id) references public.sites(id) on delete set null;
 
--- ---------- 4. WORKER-PROJECTS (اليومية ممكن تختلف بين المشاريع) ----------
-create table if not exists worker_projects (
+-- ---------- 4. WORKER_PROJECTS ----------
+create table if not exists public.worker_projects (
   id         uuid primary key default gen_random_uuid(),
-  worker_id  uuid not null references profiles(id) on delete cascade,
-  project_id uuid not null references projects(id) on delete cascade,
-  daily_wage numeric(10,2),                     -- لو فاضي → profiles.daily_wage
+  worker_id  uuid not null references public.profiles(id) on delete restrict,
+  project_id uuid not null references public.projects(id) on delete restrict,
+  daily_wage numeric(10,2) check (daily_wage is null or daily_wage >= 0),
   joined_at  timestamptz not null default now(),
   unique (worker_id, project_id)
 );
 
--- ---------- 5. SITE-WORKERS (العمال المرتبطين بموقع) ----------
-create table if not exists site_workers (
-  site_id     uuid references sites(id) on delete cascade,
-  worker_id   uuid references profiles(id) on delete cascade,
+-- ---------- 5. SITE_WORKERS ----------
+create table if not exists public.site_workers (
+  site_id     uuid not null references public.sites(id) on delete restrict,
+  worker_id   uuid not null references public.profiles(id) on delete restrict,
   assigned_at timestamptz not null default now(),
   primary key (site_id, worker_id)
 );
 
--- ---------- 6. ATTENDANCE (الحضور — سجل واحد لليوم) ----------
-create table if not exists attendance (
-  id         uuid primary key default gen_random_uuid(),
-  worker_id  uuid not null references profiles(id) on delete cascade,
-  project_id uuid references projects(id) on delete set null,
-  work_date  date not null default current_date,
-  source     text not null default 'worker' check (source in ('worker','admin')),
-  lat        numeric(10,7),
-  lng        numeric(10,7),
-  note       text,
-  created_by uuid references profiles(id),
-  created_at timestamptz not null default now(),
+-- ---------- 6. ATTENDANCE ----------
+create table if not exists public.attendance (
+  id                   uuid primary key default gen_random_uuid(),
+  worker_id            uuid not null references public.profiles(id) on delete restrict,
+  project_id           uuid references public.projects(id) on delete set null,
+  work_date            date not null default current_date,
+  source               text not null default 'worker' check (source in ('worker','admin')),
+  lat                  numeric(10,7),
+  lng                  numeric(10,7),
+  note                 text,
+  daily_wage_snapshot  numeric(10,2) check (daily_wage_snapshot is null or daily_wage_snapshot >= 0),
+  created_by           uuid references public.profiles(id),
+  created_at           timestamptz not null default now(),
   unique (worker_id, work_date)
 );
-create index if not exists idx_attendance_worker_date on attendance(worker_id, work_date desc);
 
--- ---------- 7. ATTENDANCE-SITES (أكتر من موقع في نفس اليوم = يومية واحدة) ----------
-create table if not exists attendance_sites (
+alter table public.attendance
+  add column if not exists daily_wage_snapshot numeric(10,2);
+create index if not exists idx_attendance_worker_date
+  on public.attendance(worker_id, work_date desc);
+
+-- GPS has been removed from attendance capture. Keep lat/lng columns for old rows,
+-- but force all newly inserted attendance rows to store NULL coordinates.
+create or replace function public.clear_new_attendance_gps()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.lat := null;
+  new.lng := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_attendance_no_gps on public.attendance;
+create trigger trg_attendance_no_gps
+  before insert on public.attendance
+  for each row execute function public.clear_new_attendance_gps();
+revoke all on function public.clear_new_attendance_gps() from public, anon, authenticated;
+
+-- Snapshot old rows at the wage currently used by the old view, so later wage
+-- changes cannot silently rewrite historical pay. Ambiguous old project links
+-- still need review before closing those projects.
+update public.attendance a
+set daily_wage_snapshot = coalesce(
+  (select wp.daily_wage
+   from public.worker_projects wp
+   where wp.worker_id = a.worker_id
+     and wp.project_id = a.project_id
+     and wp.daily_wage is not null
+   limit 1),
+  (select p.daily_wage from public.profiles p where p.id = a.worker_id),
+  0
+)
+where a.daily_wage_snapshot is null;
+
+-- ---------- 7. ATTENDANCE_SITES ----------
+create table if not exists public.attendance_sites (
   id            uuid primary key default gen_random_uuid(),
-  attendance_id uuid not null references attendance(id) on delete cascade,
-  site_id       uuid not null references sites(id) on delete cascade,
+  attendance_id uuid not null references public.attendance(id) on delete cascade,
+  site_id       uuid not null references public.sites(id) on delete restrict,
   unique (attendance_id, site_id)
 );
 
--- ---------- 8. WITHDRAWALS (الفلوس اللي العمال خدوها) ----------
-create table if not exists withdrawals (
-  id            uuid primary key default gen_random_uuid(),
-  worker_id     uuid not null references profiles(id) on delete cascade,
-  project_id    uuid references projects(id) on delete set null,
-  amount        numeric(10,2) not null check (amount > 0),
-  note          text,
-  status        text not null default 'pending' check (status in ('pending','approved','rejected')),
-  decided_by    uuid references profiles(id),
-  decided_at    timestamptz,
-  decision_note text,
-  created_by    uuid references profiles(id),
-  created_at    timestamptz not null default now()
+-- One attendance record (and one wage snapshot) can be linked to any number of projects.
+create table if not exists public.attendance_projects (
+  attendance_id uuid not null references public.attendance(id) on delete cascade,
+  project_id    uuid not null references public.projects(id) on delete restrict,
+  created_at    timestamptz not null default now(),
+  primary key (attendance_id, project_id)
 );
-create index if not exists idx_withdrawals_worker on withdrawals(worker_id, created_at desc);
-create index if not exists idx_withdrawals_status on withdrawals(status) where status = 'pending';
+create index if not exists idx_attendance_projects_project
+  on public.attendance_projects(project_id, attendance_id);
+comment on table public.attendance_projects is
+  'Project/activity links for one daily attendance record; never a separate wage or balance.';
+insert into public.attendance_projects (attendance_id, project_id)
+select a.id, a.project_id
+from public.attendance a
+join public.projects p on p.id = a.project_id
+where a.project_id is not null
+on conflict (attendance_id, project_id) do nothing;
 
--- ---------- 9. DEDUCTIONS (خصومات يدوية) ----------
-create table if not exists deductions (
-  id         uuid primary key default gen_random_uuid(),
-  worker_id  uuid not null references profiles(id) on delete cascade,
-  project_id uuid references projects(id) on delete set null,
-  amount     numeric(10,2) not null check (amount <> 0),
-  reason     text not null,
-  created_by uuid references profiles(id),
-  created_at timestamptz not null default now()
-);
-
--- ---------- 10. SETTLEMENTS (تسوية نهاية المشروع) ----------
-create table if not exists settlements (
+-- ---------- 8. WITHDRAWALS ----------
+create table if not exists public.withdrawals (
   id               uuid primary key default gen_random_uuid(),
-  worker_id        uuid not null references profiles(id) on delete cascade,
-  project_id       uuid references projects(id) on delete cascade,
-  days_worked      int not null default 0,
-  daily_wage       numeric(10,2) not null default 0,
+  worker_id        uuid not null references public.profiles(id) on delete restrict,
+  project_id       uuid references public.projects(id) on delete set null,
+  amount           numeric(10,2) not null check (amount > 0),
+  note             text,
+  status           text not null default 'pending'
+                     check (status in ('pending','approved','rejected')),
+  decided_by       uuid references public.profiles(id),
+  decided_at       timestamptz,
+  decision_note    text,
+  created_by       uuid references public.profiles(id),
+  client_request_id uuid,
+  created_at       timestamptz not null default now()
+);
+
+alter table public.withdrawals
+  add column if not exists client_request_id uuid;
+create unique index if not exists idx_withdrawals_client_request
+  on public.withdrawals(client_request_id) where client_request_id is not null;
+create index if not exists idx_withdrawals_worker
+  on public.withdrawals(worker_id, created_at desc);
+create index if not exists idx_withdrawals_status
+  on public.withdrawals(status) where status = 'pending';
+
+-- ---------- 9. DEDUCTIONS ----------
+create table if not exists public.deductions (
+  id         uuid primary key default gen_random_uuid(),
+  worker_id  uuid not null references public.profiles(id) on delete restrict,
+  project_id uuid references public.projects(id) on delete set null,
+  amount     numeric(10,2) not null check (amount > 0),
+  reason     text not null,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  voided_at  timestamptz,
+  voided_by  uuid references public.profiles(id),
+  void_reason text
+);
+alter table public.deductions add column if not exists voided_at timestamptz;
+alter table public.deductions add column if not exists voided_by uuid references public.profiles(id);
+alter table public.deductions add column if not exists void_reason text;
+create index if not exists idx_deductions_worker_active
+  on public.deductions(worker_id, created_at desc) where voided_at is null;
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.deductions'::regclass
+      and conname = 'deductions_amount_positive'
+  ) then
+    alter table public.deductions
+      add constraint deductions_amount_positive check (amount > 0) not valid;
+  end if;
+end $$;
+
+-- ---------- 10. SETTLEMENTS ----------
+create table if not exists public.settlements (
+  id               uuid primary key default gen_random_uuid(),
+  worker_id        uuid not null references public.profiles(id) on delete restrict,
+  project_id       uuid references public.projects(id) on delete restrict,
+  days_worked      int not null default 0 check (days_worked >= 0),
+  daily_wage       numeric(10,2) not null default 0 check (daily_wage >= 0),
   total_earned     numeric(10,2) not null default 0,
   total_withdrawn  numeric(10,2) not null default 0,
   total_deductions numeric(10,2) not null default 0,
   net_amount       numeric(10,2) not null default 0,
   status           text not null default 'draft' check (status in ('draft','confirmed','paid')),
   worker_ack_at    timestamptz,
-  confirmed_by     uuid references profiles(id),
+  confirmed_by     uuid references public.profiles(id),
   paid_at          timestamptz,
+  client_request_id uuid,
   created_at       timestamptz not null default now(),
   unique (worker_id, project_id)
 );
+alter table public.settlements add column if not exists client_request_id uuid;
+create unique index if not exists idx_settlements_client_request
+  on public.settlements(client_request_id) where client_request_id is not null;
 
--- ---------- 11. AUDIT LOG (سجل التعديلات) ----------
-create table if not exists audit_log (
+-- ---------- 11. AUDIT_LOG ----------
+create table if not exists public.audit_log (
   id         bigserial primary key,
   table_name text not null,
   record_id  text,
@@ -169,12 +304,12 @@ create table if not exists audit_log (
   changed_by uuid,
   changed_at timestamptz not null default now()
 );
-create index if not exists idx_audit_time on audit_log(changed_at desc);
+create index if not exists idx_audit_time on public.audit_log(changed_at desc);
 
--- ---------- 12. NOTIFICATIONS (إشعارات جوه الأبليكيشن) ----------
-create table if not exists notifications (
+-- ---------- 12. NOTIFICATIONS ----------
+create table if not exists public.notifications (
   id         uuid primary key default gen_random_uuid(),
-  user_id    uuid references profiles(id) on delete cascade,
+  user_id    uuid references public.profiles(id) on delete cascade,
   type       text not null,
   title      text not null,
   body       text,
@@ -182,90 +317,100 @@ create table if not exists notifications (
   is_read    boolean not null default false,
   created_at timestamptz not null default now()
 );
-create index if not exists idx_notif_user on notifications(user_id, created_at desc);
+create index if not exists idx_notif_user
+  on public.notifications(user_id, created_at desc);
 
--- ---------- 13. SETTINGS (إعدادات التطبيق) ----------
-create table if not exists settings (
+-- ---------- 13. SETTINGS ----------
+create table if not exists public.settings (
   key        text primary key,
   value      jsonb not null,
   updated_at timestamptz not null default now()
 );
 
-insert into settings (key, value) values
-  ('app',      '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":true,"currency":"ج.م"}'::jsonb),
-  ('telegram', '{"bot_token":"","chat_id":""}'::jsonb)
+insert into public.settings (key, value) values
+  ('app', '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
+  ('telegram', '{"chat_id":""}'::jsonb)
 on conflict (key) do nothing;
+-- Telegram bot tokens must never be stored in the client-readable settings table.
+update public.settings
+set value = coalesce(value, '{}'::jsonb) - 'bot_token'
+where key = 'telegram' and value ? 'bot_token';
 
--- ============================================================
---  VIEWS — الحسابات
--- ============================================================
-
--- أجر كل يوم حضور (اليومية ممكن تكون مختلفة حسب المشروع)
-create or replace view attendance_with_wage as
+-- ---------- VIEWS ----------
+-- Views execute under the caller's privileges and therefore inherit table RLS.
+create or replace view public.attendance_with_wage
+with (security_invoker = true) as
 select
   a.id,
   a.worker_id,
   a.project_id,
   a.work_date,
-  coalesce(wp.daily_wage, p.daily_wage, 0) as wage
-from attendance a
-join profiles p on p.id = a.worker_id
-left join lateral (
-  select w.daily_wage
-  from worker_projects w
-  where w.worker_id = a.worker_id
-    and w.project_id = a.project_id
-    and w.daily_wage is not null
-  limit 1
-) wp on true;
+  coalesce(a.daily_wage_snapshot, p.daily_wage, 0) as wage
+from public.attendance a
+join public.profiles p on p.id = a.worker_id;
 
--- رصيد كل عامل (المعادلة الأساسية)
-create or replace view worker_balances as
+-- All-project balance for the worker and admin overview.
+create or replace view public.worker_balances
+with (security_invoker = true) as
 select
-  p.id                                        as worker_id,
+  p.id as worker_id,
   p.full_name,
   p.phone,
   p.role,
   p.daily_wage,
   p.is_active,
-  coalesce(e.days_worked, 0)::int             as days_worked,
-  coalesce(e.earned, 0)                       as earned,
-  coalesce(w.approved, 0)                     as withdrawn_approved,
-  coalesce(w.pending, 0)                      as withdrawn_pending,
-  coalesce(d.deducted, 0)                     as deducted,
-  -- الرصيد الحقيقي (المعتمد بس)
-  coalesce(e.earned, 0)
-    - coalesce(w.approved, 0)
-    - coalesce(d.deducted, 0)                 as balance,
-  -- المتاح للأخذ (بنستقعد المعلّق كمان عشان مايكدسش طلبات)
-  coalesce(e.earned, 0)
-    - coalesce(w.approved, 0)
-    - coalesce(w.pending, 0)
-    - coalesce(d.deducted, 0)                 as available
-from profiles p
+  coalesce(e.days_worked, 0)::int as days_worked,
+  coalesce(e.earned, 0) as earned,
+  coalesce(w.approved, 0) as withdrawn_approved,
+  coalesce(w.pending, 0) as withdrawn_pending,
+  coalesce(d.deducted, 0) as deducted,
+  coalesce(e.earned, 0) - coalesce(w.approved, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as balance,
+  coalesce(e.earned, 0) - coalesce(w.approved, 0)
+    - coalesce(w.pending, 0) - coalesce(d.deducted, 0) - coalesce(st.paid, 0) as available,
+  coalesce(st.paid, 0) as settled_paid
+from public.profiles p
 left join (
   select worker_id, count(*) as days_worked, sum(wage) as earned
-  from attendance_with_wage group by worker_id
+  from public.attendance_with_wage
+  group by worker_id
 ) e on e.worker_id = p.id
 left join (
   select worker_id,
          sum(amount) filter (where status = 'approved') as approved,
-         sum(amount) filter (where status = 'pending')  as pending
-  from withdrawals group by worker_id
+         sum(amount) filter (where status = 'pending') as pending
+  from public.withdrawals
+  group by worker_id
 ) w on w.worker_id = p.id
 left join (
   select worker_id, sum(amount) as deducted
-  from deductions group by worker_id
+  from public.deductions
+  where voided_at is null
+  group by worker_id
 ) d on d.worker_id = p.id
+left join (
+  select worker_id, sum(net_amount) as paid
+  from public.settlements
+  where project_id is null and status = 'paid'
+  group by worker_id
+) st on st.worker_id = p.id
 where p.role = 'worker';
 
--- ملخص يومي (للداشبورد)
-create or replace view daily_summary as
+-- Project-scoped financial balances are intentionally not exposed. A worker's
+-- wages, withdrawals and deductions belong to the global worker account.
+
+-- Daily counts use the company's Cairo business date, not the database host's UTC date.
+create or replace view public.daily_summary
+with (security_invoker = true) as
 select
-  current_date                                            as day,
-  (select count(*) from profiles where role='worker' and is_active) as total_workers,
-  (select count(distinct worker_id) from attendance where work_date = current_date) as present_today,
-  (select count(*) from profiles where role='worker' and is_active
-     and id not in (select worker_id from attendance where work_date = current_date)) as absent_today,
-  (select coalesce(sum(amount),0) from withdrawals where created_at::date = current_date) as withdrawn_today,
-  (select coalesce(sum(wage),0) from attendance_with_wage where work_date = current_date) as earned_today;
+  (now() at time zone 'Africa/Cairo')::date as day,
+  (select count(*) from public.profiles where role = 'worker' and is_active and status = 'active') as total_workers,
+  (select count(distinct worker_id) from public.attendance
+    where work_date = (now() at time zone 'Africa/Cairo')::date) as present_today,
+  (select count(*) from public.profiles where role = 'worker' and is_active and status = 'active'
+    and id not in (select worker_id from public.attendance
+      where work_date = (now() at time zone 'Africa/Cairo')::date)) as absent_today,
+  (select coalesce(sum(amount), 0) from public.withdrawals
+    where (created_at at time zone 'Africa/Cairo')::date = (now() at time zone 'Africa/Cairo')::date
+      and status = 'approved') as withdrawn_today,
+  (select coalesce(sum(wage), 0) from public.attendance_with_wage
+    where work_date = (now() at time zone 'Africa/Cairo')::date) as earned_today;

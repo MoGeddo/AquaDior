@@ -1,5 +1,6 @@
 import { useAuth } from "../store/auth";
 import { useNavigate } from "react-router-dom";
+import AppIcon from "../components/AppIcon";
 
 export default function PendingApproval() {
   const { profile, signOut } = useAuth();
@@ -8,7 +9,7 @@ export default function PendingApproval() {
   return (
     <div className="auth" style={{ alignItems: "flex-start", padding: "24px 16px" }}>
       <div className="login-card center">
-        <div style={{ fontSize: 52 }}>⏳</div>
+        <AppIcon name="clock" size={48} className="pending-approval-icon" />
         <h1 style={{ fontSize: 20, margin: "10px 0" }}>
           حسابك مستني تفعيل المالك
         </h1>

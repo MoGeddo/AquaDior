@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { money, todayStr } from "../../lib/calc";
 import type { WorkerBalance, Notification } from "../../lib/types";
+import { useAuth } from "../../store/auth";
+import AppIcon from "../../components/AppIcon";
 
 export default function Dashboard() {
+  const { profile } = useAuth();
   const [balances, setBalances] = useState<WorkerBalance[]>([]);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [present, setPresent] = useState(0);
@@ -12,7 +15,7 @@ export default function Dashboard() {
   const [todayEarned, setTodayEarned] = useState(0);
   const [absentNames, setAbsentNames] = useState<string[]>([]);
 
-  async function load() {
+  const load = useCallback(async () => {
     const t = todayStr();
 
     const { data } = await supabase
@@ -33,6 +36,7 @@ export default function Dashboard() {
         supabase
           .from("notifications")
           .select("*")
+          .eq("user_id", profile?.id ?? "")
           .order("created_at", { ascending: false })
           .limit(6),
         supabase.from("attendance_with_wage").select("wage").eq("work_date", t),
@@ -48,19 +52,20 @@ export default function Dashboard() {
     setAbsentNames(
       list.filter((b) => !presentIds.has(b.worker_id)).map((b) => b.full_name)
     );
-  }
+  }, [profile?.id]);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 20000);
+    void load();
+    const t = setInterval(() => void load(), 20000);
     return () => clearInterval(t);
-  }, []);
+  }, [load]);
 
   const total = {
     earned: balances.reduce((s, b) => s + Number(b.earned), 0),
     wd: balances.reduce((s, b) => s + Number(b.withdrawn_approved), 0),
     pending: balances.reduce((s, b) => s + Number(b.withdrawn_pending), 0),
     dd: balances.reduce((s, b) => s + Number(b.deducted), 0),
+    settled: balances.reduce((s, b) => s + Number(b.settled_paid ?? 0), 0),
     net: balances.reduce((s, b) => s + Number(b.balance), 0),
   };
 
@@ -74,7 +79,9 @@ export default function Dashboard() {
         </div>
         <div className="stat">
           <div className="label">نزلوا النهاردة</div>
-          <div className="value green">✓ {present}</div>
+          <div className="value green">
+            <span className="value-with-icon"><AppIcon name="circleCheck" size={19} /><span>{present}</span></span>
+          </div>
         </div>
         <div className="stat">
           <div className="label">غايبين</div>
@@ -90,7 +97,10 @@ export default function Dashboard() {
         {/* ===== ملخص اليوم ===== */}
         <div className="card">
           <div className="card-title">
-            <span>📊 ملخص النهاردة</span>
+            <span className="icon-label">
+              <AppIcon name="calendarCheck" size={18} />
+              <span>ملخص النهاردة</span>
+            </span>
           </div>
           <div className="row">
             <span className="muted">استحقاق العمال النهاردة</span>
@@ -113,7 +123,10 @@ export default function Dashboard() {
         {/* ===== إجمالي الأرصدة ===== */}
         <div className="card">
           <div className="card-title">
-            <span>💰 إجمالي الأرصدة (كل المشاريع)</span>
+            <span className="icon-label">
+              <AppIcon name="wallet" size={18} />
+              <span>إجمالي الأرصدة (كل المشاريع)</span>
+            </span>
           </div>
           <div className="row">
             <span className="muted">إجمالي الاستحقاقات</span>
@@ -139,6 +152,12 @@ export default function Dashboard() {
               {money(total.dd)}
             </b>
           </div>
+          {total.settled > 0 && (
+            <div className="row">
+              <span className="muted">تسويات مصروفة</span>
+              <b className="num" style={{ color: "var(--green-600)" }}>{money(total.settled)}</b>
+            </div>
+          )}
           <div className="row" style={{ borderTop: "2px solid var(--ink-200)" }}>
             <span>
               <b>المطلوب صرفه للكل</b>
@@ -153,13 +172,19 @@ export default function Dashboard() {
       {/* ===== الغايبين ===== */}
       <div className="card">
         <div className="card-title">
-          <span>👷 العمال اللي مسجّلوش النهاردة ({absentNames.length})</span>
+          <span className="icon-label">
+            <AppIcon name="hardHat" size={18} />
+            <span>العمال اللي مسجّلوش النهاردة ({absentNames.length})</span>
+          </span>
           <Link to="/admin/attendance" className="btn btn-sm">
             فتح الحضور
           </Link>
         </div>
         {absentNames.length === 0 ? (
-          <div className="empty">🎉 كل العمال سجّلوا النهاردة</div>
+          <div className="empty empty-with-icon">
+            <AppIcon name="circleCheck" size={24} className="empty-state-icon" />
+            <span>كل العمال سجّلوا النهاردة</span>
+          </div>
         ) : (
           <div className="flex wrap" style={{ gap: 8 }}>
             {absentNames.map((n) => (
@@ -174,7 +199,10 @@ export default function Dashboard() {
       {/* ===== الإشعارات ===== */}
       <div className="card">
         <div className="card-title">
-          <span>🔔 آخر الإشعارات</span>
+          <span className="icon-label">
+            <AppIcon name="bell" size={18} />
+            <span>آخر الإشعارات</span>
+          </span>
           <Link to="/admin/audit" className="btn btn-sm">
             سجل التعديلات
           </Link>
@@ -194,12 +222,15 @@ export default function Dashboard() {
       {/* ===== أكبر المسحوبين ===== */}
       <div className="card">
         <div className="card-title">
-          <span>💵 أكبر المسحوبين</span>
+          <span className="icon-label">
+            <AppIcon name="banknote" size={18} />
+            <span>أكبر المسحوبين</span>
+          </span>
           <Link to="/admin/workers" className="btn btn-sm">
             كل العمال
           </Link>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap" role="region" aria-label="جدول العمال الأكثر سحبًا" tabIndex={0}>
           <table>
             <thead>
               <tr>

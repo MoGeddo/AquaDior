@@ -1,168 +1,92 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import type { AppSettings } from "../../lib/types";
-import { DEFAULT_SETTINGS } from "../../lib/types";
+import { useAuth } from "../../store/auth";
+import ExternalPushSettings from "../../components/ExternalPushSettings";
+import AppIcon from "../../components/AppIcon";
 
 export default function SettingsPage() {
-  const [app, setApp] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [tgToken, setTgToken] = useState("");
+  const { profile } = useAuth();
   const [tgChat, setTgChat] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const { data } = await supabase.from("settings").select("*");
-    (data ?? []).forEach((r: any) => {
-      if (r.key === "app") setApp({ ...DEFAULT_SETTINGS, ...r.value });
-      if (r.key === "telegram") {
-        setTgToken(r.value?.bot_token ?? "");
-        setTgChat(r.value?.chat_id ?? "");
-      }
-    });
+    const { data, error } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "telegram")
+      .maybeSingle();
+    if (error) {
+      setErr(`تعذر تحميل إعدادات تليجرام: ${error.message}`);
+      return;
+    }
+    const telegramSettings = data?.value as Record<string, unknown> | null;
+    setTgChat(typeof telegramSettings?.chat_id === "string" ? telegramSettings.chat_id : "");
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  async function saveApp() {
-    setErr("");
-    setBusy(true);
-    const { error } = await supabase
-      .from("settings")
-      .update({ value: app, updated_at: new Date().toISOString() })
-      .eq("key", "app");
-    setBusy(false);
-    if (error) return setErr(error.message);
-    setMsg("تم حفظ الإعدادات ✅");
-  }
-
   async function saveTg() {
     setErr("");
+    setMsg("");
     setBusy(true);
-    const { data } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "telegram")
-      .single();
-    const { error } = await supabase
-      .from("settings")
-      .update({
-        value: { ...(data?.value ?? {}), bot_token: tgToken.trim(), chat_id: tgChat.trim() },
-        updated_at: new Date().toISOString(),
-      })
-      .eq("key", "telegram");
-    setBusy(false);
-    if (error) return setErr(error.message);
-    setMsg("تم حفظ إعدادات تليجرام ✅");
+    try {
+      const { data, error: readError } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "telegram")
+        .maybeSingle();
+      if (readError) throw readError;
+      const value = { ...(data?.value ?? {}), chat_id: tgChat.trim() };
+      delete value.bot_token;
+      const { error } = await supabase.from("settings").upsert(
+        { key: "telegram", value, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+      if (error) throw error;
+      setMsg("تم حفظ إعدادات تليجرام");
+    } catch (error: any) {
+      setErr(error?.message ?? "تعذر حفظ إعدادات تليجرام");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function testTg() {
     setErr("");
     setMsg("");
-    if (!tgToken.trim() || !tgChat.trim())
-      return setErr("اكتب التوكن والـ chat id الأول");
+    if (!tgChat.trim()) return setErr("اكتب الـ chat id واحفظه أولاً");
     setBusy(true);
     try {
-      const r = await fetch(
-        `https://api.telegram.org/bot${tgToken.trim()}/sendMessage`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: tgChat.trim(),
-            text: "✅ اختبار من تطبيق أكوا ديور للمقاولات — الإشعارات شغالة!",
-          }),
-        }
-      );
-      const j = await r.json();
-      if (!j.ok) return setErr("فشل: " + (j.description ?? "خطأ غير معروف"));
-      setMsg("تم الإرسال ✅ — شوف تليجرام");
-    } catch (e: any) {
-      setErr("فشل الإرسال: " + e.message);
+      const { data, error } = await supabase.functions.invoke("notify-telegram", {
+        body: { action: "test" },
+      });
+      if (error || !data?.ok) throw error ?? new Error("فشل إرسال الاختبار");
+      setMsg("تم الإرسال — شوف تليجرام");
+    } catch (error: any) {
+      setErr(error?.message ?? "فشل إرسال الاختبار؛ تحقق من نشر Edge Function وإعداد أسرارها");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
     <>
-      <div className="card">
-        <div className="card-title">الإعدادات العامة</div>
-        {err && <div className="alert error">{err}</div>}
-        {msg && <div className="alert success">{msg}</div>}
+      {err && <div className="alert error">{err}</div>}
+      {msg && <div className="alert success" role="status"><span className="icon-label"><AppIcon name="circleCheck" size={17} /><span>{msg}</span></span></div>}
+      {profile && <ExternalPushSettings userId={profile.id} />}
 
-        <div className="grid-2">
-          <label className="field">
-            <span>سقف الأخذ التلقائي (جنيه)</span>
-            <input
-              className="input"
-              inputMode="decimal"
-              value={app.auto_approve_limit}
-              onChange={(e) =>
-                setApp({ ...app, auto_approve_limit: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span>خصم نسيان التسجيل (جنيه)</span>
-            <input
-              className="input"
-              inputMode="decimal"
-              value={app.absence_deduction}
-              onChange={(e) =>
-                setApp({ ...app, absence_deduction: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label className="field">
-            <span>العملة</span>
-            <input
-              className="input"
-              value={app.currency}
-              onChange={(e) => setApp({ ...app, currency: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            <span>التحقق بالموقع (GPS)</span>
-            <select
-              className="input"
-              value={app.gps_enabled ? "1" : "0"}
-              onChange={(e) =>
-                setApp({ ...app, gps_enabled: e.target.value === "1" })
-              }
-            >
-              <option value="1">مفعّل (يسجّل المكان للمراجعة)</option>
-              <option value="0">متوقف</option>
-            </select>
-          </label>
+      <div className="card">
+        <div className="card-title">
+          <span className="icon-label"><AppIcon name="bell" size={18} /><span>إشعارات تليجرام (مجانية)</span></span>
         </div>
-
         <p className="small muted mb">
-          أي مبلغ فوق السقف بيحتاج موافقتك، واللي تحته بيعدّي لوحده.
+          احتفظ بتوكن البوت كسرّ في إعدادات Supabase Edge Functions فقط، ولا تضعه في التطبيق أو قاعدة البيانات.
+          حدّد <code>TELEGRAM_BOT_TOKEN</code> عبر Supabase CLI، ثم أدخل Chat ID هنا.
         </p>
-
-        <button className="btn btn-primary" onClick={saveApp} disabled={busy}>
-          حفظ الإعدادات
-        </button>
-      </div>
-
-      <div className="card">
-        <div className="card-title">إشعارات تليجرام (مجانية)</div>
-        <p className="small muted mb">
-          اعمل Bot من <b>@BotFather</b> على تليجرام، انسخ التوكن، وبعدين ابعتله
-          أي رسالة وخد الـ chat id من <code>@userinfobot</code>.
-        </p>
-        <label className="field">
-          <span>Bot Token</span>
-          <input
-            className="input"
-            dir="ltr"
-            placeholder="123456:ABC-DEF..."
-            value={tgToken}
-            onChange={(e) => setTgToken(e.target.value)}
-          />
-        </label>
         <label className="field">
           <span>Chat ID</span>
           <input
@@ -173,7 +97,7 @@ export default function SettingsPage() {
             onChange={(e) => setTgChat(e.target.value)}
           />
         </label>
-        <div className="flex">
+        <div className="flex wrap">
           <button className="btn btn-primary" onClick={saveTg} disabled={busy}>
             حفظ
           </button>
@@ -184,7 +108,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="card">
-        <div className="card-title">التقرير اليومي التلقائي</div>
+        <div className="card-title">
+          <span className="icon-label"><AppIcon name="calendarCheck" size={18} /><span>التقرير اليومي التلقائي</span></span>
+        </div>
         <p className="small muted mb">
           عشان التقرير يوصل كل يوم على تليجرام، نشر الـ Edge Function:
         </p>
@@ -199,11 +125,14 @@ export default function SettingsPage() {
             overflowX: "auto",
           }}
         >
-{`supabase functions deploy notify-telegram
+{`# خزّن الأسرار خارج التطبيق/قاعدة البيانات
+supabase secrets set TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN' TELEGRAM_CRON_SECRET='LONG_RANDOM_SECRET' APP_ORIGIN='https://your-app.example'
+supabase functions deploy notify-telegram
 
-# جدول التقرير اليومي (كل يوم 9 مساءً)
-# Supabase Dashboard → Edge Functions → Cron
-# 0 18 * * *  →  notify-telegram?action=daily`}
+# أعدّ مجدولاً يرسل POST إلى:
+# https://YOUR_PROJECT.supabase.co/functions/v1/notify-telegram?action=daily
+# مع الترويسة x-cron-secret: LONG_RANDOM_SECRET
+# لا تضع السر في مستودع Git أو في واجهة التطبيق.`}
         </pre>
       </div>
     </>

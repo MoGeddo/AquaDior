@@ -6,9 +6,9 @@ export function money(n: number, currency = "ج.م"): string {
   })} ${currency}`;
 }
 
-/** المعادلة الأساسية: استحقاق − مسحوب − خصومات */
+/** الرصيد العام: الاستحقاق − السحوبات − الخصومات − التسويات المصروفة */
 export function netAmount(b: WorkerBalance): number {
-  return (b.earned || 0) - (b.withdrawn_approved || 0) - (b.deducted || 0);
+  return (b.earned || 0) - (b.withdrawn_approved || 0) - (b.deducted || 0) - (b.settled_paid || 0);
 }
 
 /** اللي يقدر ياخده دلوقتي (بنستقعد المعلّق كمان) */
@@ -17,7 +17,8 @@ export function availableNow(b: WorkerBalance): number {
     (b.earned || 0) -
     (b.withdrawn_approved || 0) -
     (b.withdrawn_pending || 0) -
-    (b.deducted || 0)
+    (b.deducted || 0) -
+    (b.settled_paid || 0)
   );
 }
 
@@ -44,18 +45,24 @@ export function needsApproval(amount: number, settings: AppSettings): boolean {
 }
 
 export function todayStr(): string {
-  const d = new Date();
-  const off = d.getTimezoneOffset();
-  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export function fmtDate(d: string): string {
   try {
-    return new Date(d).toLocaleDateString("ar-EG", {
+    return new Intl.DateTimeFormat("ar-EG", {
+      timeZone: "Africa/Cairo",
       weekday: "long",
       day: "numeric",
       month: "long",
-    });
+    }).format(new Date(d));
   } catch {
     return d;
   }

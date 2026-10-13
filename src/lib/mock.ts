@@ -1,213 +1,123 @@
 /**
- * وضع تجريبي (Demo Mode)
- * يشتغل التطبيق كامل ببيانات وهمية من غير Supabase.
- * بيتفعّل تلقائيًا لو VITE_SUPABASE_URL مش متظبط.
+ * وضع Demo محلي فقط، لا يتصل بـSupabase.
+ * يبدأ بحسابات الإدارة الثلاثة فقط ولا يحمّل أي عمال أو مشاريع أو حركات وهمية.
+ * التفعيل يحتاج VITE_DEMO_MODE=1 صراحةً؛ لا تستخدمه لتشغيل بيانات حقيقية.
  */
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
-function isoDaysAgo(n: number, h = 9): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(h, 30, 0, 0);
-  return d.toISOString();
-}
-
-const WORKER_NAMES = [
-  ["أحمد محمد علي", 350],
-  ["محمود سيد إبراهيم", 350],
-  ["خالد عبد الرحمن", 300],
-  ["مصطفى كمال حسن", 400],
-  ["رمضان فتحي أحمد", 300],
-  ["سعيد حسن محمود", 350],
-  ["عمرو الشحات عبد الله", 400],
-  ["طارق سعيد منصور", 300],
-  ["حسن علي حسين", 350],
-  ["ياسر عبد العزيز", 350],
-  ["إسلام محمد فؤاد", 300],
-  ["عادل رمضان سعد", 350],
-];
-
 export const demoDB: any = {
+  // حسابات تعريفية محلية للاختبار فقط؛ لا توجد أرقام اتصال أو سجلات تشغيل وهمية.
   profiles: [
     {
       id: "demo-owner",
       full_name: "عابدين يونس",
-      phone: "01000000000",
       username: "abden.younes",
       role: "owner",
       daily_wage: 0,
-      default_site_id: "site-1",
       is_active: true,
       status: "active",
-      created_at: isoDaysAgo(60),
     },
     {
       id: "demo-owner-2",
       full_name: "محمود عبدين",
-      phone: "01000000001",
       username: "mahmoud.abdin",
       role: "owner",
       daily_wage: 0,
       is_active: true,
       status: "active",
-      created_at: isoDaysAgo(60),
     },
     {
       id: "demo-developer",
-      full_name: "Mostafa Geddo",
-      phone: "01000000002",
+      full_name: "مصطفى جدو",
       username: "mostafageddo",
       role: "developer",
       daily_wage: 0,
       is_active: true,
       status: "active",
-      created_at: isoDaysAgo(60),
-    },
-    ...WORKER_NAMES.map(([name, wage], i) => ({
-      id: `demo-w${i + 1}`,
-      full_name: name as string,
-      phone: `0111${String(1000000 + i * 137).slice(0, 7)}`,
-      role: "worker",
-      daily_wage: wage as number,
-      default_site_id: `site-${(i % 3) + 1}`,
-      is_active: i !== 10,
-      status: "active",
-      id_card_url: null,
-      username:
-        "worker" +
-        String(i + 1).padStart(2, "0"),
-      created_at: isoDaysAgo(50 - i),
-    })),
-    // طلب تسجيل مستني موافقة
-    {
-      id: "demo-pending-1",
-      full_name: "سيد عبد الله سيد",
-      phone: "01155555555",
-      username: "sayed.ali",
-      role: "worker",
-      daily_wage: 0,
-      is_active: true,
-      status: "pending",
-      id_card_url: null,
-      created_at: isoDaysAgo(0, 8),
     },
   ],
-
-  projects: [
-    {
-      id: "proj-1",
-      name: "عمارة المنصورة",
-      description: "دورين + بدروم",
-      status: "active",
-      start_date: daysAgo(25),
-      end_date: null,
-      created_at: isoDaysAgo(25),
-    },
-    {
-      id: "proj-2",
-      name: "تشطيب فيلا التجمع",
-      description: "تشطيب كامل",
-      status: "active",
-      start_date: daysAgo(12),
-      end_date: null,
-      created_at: isoDaysAgo(12),
-    },
-  ],
-
-  sites: [
-    { id: "site-1", project_id: "proj-1", name: "موقع العمارة - أ", address: "المنصورة - شارع الجيش", is_active: true },
-    { id: "site-2", project_id: "proj-1", name: "موقع العمارة - ب", address: "المنصورة - behind", is_active: true },
-    { id: "site-3", project_id: "proj-2", name: "الفيلا - تجمع", address: "التجمع الأول", is_active: true },
-  ],
-
-  site_workers: WORKER_NAMES.flatMap((_, i) => [
-    { site_id: `site-${(i % 3) + 1}`, worker_id: `demo-w${i + 1}`, assigned_at: isoDaysAgo(20) },
-  ]),
-
-  worker_projects: WORKER_NAMES.map((_, i) => ({
-    id: `wp-${i + 1}`,
-    worker_id: `demo-w${i + 1}`,
-    project_id: i % 3 === 2 ? "proj-2" : "proj-1",
-    daily_wage: WORKER_NAMES[i][1],
-    joined_at: isoDaysAgo(20),
-  })),
-
-  attendance: WORKER_NAMES.flatMap((_, wi) =>
-    Array.from({ length: 14 }, (_, d) => {
-      // كل عامل عنده نمط غياب مختلف
-      const skip = (wi + d * 3) % 7 === 0 || (wi === 3 && d === 5) || (wi === 7 && d === 9);
-      if (skip) return null;
-      return {
-        id: `att-${wi}-${d}`,
-        worker_id: `demo-w${wi + 1}`,
-        project_id: wi % 3 === 2 ? "proj-2" : "proj-1",
-        work_date: daysAgo(d),
-        source: d === 0 ? "worker" : "worker",
-        lat: d === 0 ? 31.0409 : null,
-        lng: d === 0 ? 31.3785 : null,
-        note: null,
-        created_by: `demo-w${wi + 1}`,
-        created_at: isoDaysAgo(d, 7 + (d % 2)),
-      };
-    }).filter(Boolean)
-  ),
-
-  attendance_sites: [] as any[],
-
-  withdrawals: [
-    { id: "wd-1", worker_id: "demo-w1", project_id: "proj-1", amount: 200, note: "مواصلات", status: "approved", decided_by: "demo-owner", decided_at: isoDaysAgo(6), decision_note: null, created_by: "demo-w1", created_at: isoDaysAgo(6) },
-    { id: "wd-2", worker_id: "demo-w1", project_id: "proj-1", amount: 300, note: "خامات", status: "approved", decided_by: "demo-owner", decided_at: isoDaysAgo(3), decision_note: null, created_by: "demo-w1", created_at: isoDaysAgo(3) },
-    { id: "wd-3", worker_id: "demo-w1", project_id: "proj-1", amount: 700, note: null, status: "pending", decided_by: null, decided_at: null, decision_note: null, created_by: "demo-w1", created_at: isoDaysAgo(0, 10) },
-    { id: "wd-4", worker_id: "demo-w2", project_id: "proj-1", amount: 150, note: "أكل", status: "approved", decided_by: "demo-owner", decided_at: isoDaysAgo(4), decision_note: null, created_by: "demo-w2", created_at: isoDaysAgo(4) },
-    { id: "wd-5", worker_id: "demo-w2", project_id: "proj-1", amount: 450, note: "سلفة", status: "approved", decided_by: "demo-owner", decided_at: isoDaysAgo(1), decision_note: null, created_by: "demo-w2", created_at: isoDaysAgo(1) },
-    { id: "wd-6", worker_id: "demo-w3", project_id: "proj-1", amount: 900, note: "خامات ومواصلات", status: "pending", decided_by: null, decided_at: null, decision_note: null, created_by: "demo-w3", created_at: isoDaysAgo(0, 11) },
-    { id: "wd-7", worker_id: "demo-w4", project_id: "proj-1", amount: 250, note: null, status: "approved", decided_by: "demo-owner", decided_at: isoDaysAgo(2), decision_note: null, created_by: "demo-w4", created_at: isoDaysAgo(2) },
-    { id: "wd-8", worker_id: "demo-w5", project_id: "proj-1", amount: 120, note: "أكل", status: "rejected", decided_by: "demo-owner", decided_at: isoDaysAgo(5), decision_note: "اتصرف امبارح", created_by: "demo-w5", created_at: isoDaysAgo(5) },
-  ],
-
-  deductions: [
-    { id: "dd-1", worker_id: "demo-w6", project_id: "proj-1", amount: 50, reason: "نسي يسجّل حضوره", created_by: "demo-owner", created_at: isoDaysAgo(4) },
-  ],
-
-  settlements: [],
-
-  notifications: [
-    { id: "nt-1", user_id: "demo-owner", type: "withdrawal_pending", title: "مطلوب موافقة ⚠️", body: "أحمد محمد علي خد 700 ج.م — فوق السقف", data: {}, is_read: false, created_at: isoDaysAgo(0, 10) },
-    { id: "nt-2", user_id: "demo-owner", type: "attendance_new", title: "حضور جديد", body: "محمود سيد إبراهيم سجّل حضوره", data: {}, is_read: false, created_at: isoDaysAgo(0, 9) },
-    { id: "nt-3", user_id: "demo-owner", type: "attendance_edit", title: "تعديل حضور ⚠️", body: "خالد عبد الرحمن عُدّل حضوره", data: {}, is_read: true, created_at: isoDaysAgo(1, 14) },
-  ],
-
-  audit_log: [
-    { id: 1, table_name: "withdrawals", record_id: "wd-3", action: "insert", old_data: null, new_data: { worker_id: "demo-w1", amount: 700 }, changed_by: "demo-w1", changed_at: isoDaysAgo(0, 10) },
-    { id: 2, table_name: "attendance", record_id: "att-1-0", action: "insert", old_data: null, new_data: { worker_id: "demo-w1", work_date: daysAgo(0) }, changed_by: "demo-w1", changed_at: isoDaysAgo(0, 9) },
-    { id: 3, table_name: "deductions", record_id: "dd-1", action: "insert", old_data: null, new_data: { worker_id: "demo-w6", amount: 50, reason: "نسي يسجّل حضوره" }, changed_by: "demo-owner", changed_at: isoDaysAgo(4) },
-  ],
-
+  projects: [] as any[],
+  sites: [] as any[],
+  worker_projects: [] as any[],
+  site_workers: [] as any[],
+  attendance: [] as any[],
+  attendance_projects: [] as any[],
+  withdrawals: [] as any[],
+  deductions: [] as any[],
+  settlements: [] as any[],
+  notifications: [] as any[],
+  audit_log: [] as any[],
   settings: [
-    { key: "app", value: { auto_approve_limit: 500, absence_deduction: 50, day_lock_time: "00:00", gps_enabled: true, currency: "ج.م" }, updated_at: isoDaysAgo(1) },
-    { key: "telegram", value: { bot_token: "", chat_id: "" }, updated_at: isoDaysAgo(1) },
+    { key: "app", value: { gps_enabled: false, currency: "ج.م" }, updated_at: new Date().toISOString() },
+    { key: "telegram", value: {}, updated_at: new Date().toISOString() },
   ],
 };
 
-// اربط المواقع بالحضور
-demoDB.attendance.forEach((a: any, i: number) => {
-  if (!a) return;
-  const n = i % 4 === 0 ? 2 : 1;
-  for (let k = 0; k < n; k++) {
-    demoDB.attendance_sites.push({
-      id: `as-${i}-${k}`,
-      attendance_id: a.id,
-      site_id: `site-${((i + k) % 3) + 1}`,
-    });
-  }
-});
+// Fixtures exist only in the isolated jsdom smoke build, never in Demo/dev or production.
+if (import.meta.env.VITE_SMOKE_TEST === "1") {
+  demoDB.profiles.push({
+    id: "smoke-worker-1",
+    full_name: "عامل اختبار آلي",
+    phone: "01000009999",
+    username: "worker01",
+    role: "worker",
+    daily_wage: 350,
+    is_active: true,
+    status: "active",
+  });
+  demoDB.profiles.push({
+    id: "smoke-worker-online",
+    full_name: "عامل اختبار الاتصال المباشر",
+    phone: "01000008888",
+    username: "worker02",
+    role: "worker",
+    daily_wage: 275,
+    is_active: true,
+    status: "active",
+  });
+  demoDB.projects.push(
+    {
+      id: "smoke-project-1",
+      name: "مشروع اختبار آلي",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
+    },
+    {
+      id: "smoke-project-2",
+      name: "موقع اختبار آلي ثانٍ",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
+    },
+    {
+      id: "smoke-project-3",
+      name: "موقع اختبار آلي ثالث",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
+    },
+    {
+      id: "smoke-project-4",
+      name: "موقع اختبار آلي رابع",
+      status: "active",
+      address: "",
+      start_date: new Date().toISOString().slice(0, 10),
+    }
+  );
+  (window as any).__smokeDemoDB = demoDB;
+  demoDB.notifications.push({
+    id: "smoke-notification-project-opened",
+    user_id: "smoke-worker-1",
+    type: "project_opened",
+    title: "مشروع مفتوح للعاملين",
+    body: "مشروع اختبار آلي متاح لكل العمال ويمكن اختياره عند تسجيل الحضور",
+    data: { project_id: "smoke-project-1" },
+    is_read: false,
+    created_at: new Date().toISOString(),
+  });
+}
 
 // ============ VIEWS ============
 export function workerBalances(): any[] {
@@ -215,18 +125,15 @@ export function workerBalances(): any[] {
     .filter((p: any) => p.role === "worker")
     .map((p: any) => {
       const att = demoDB.attendance.filter((a: any) => a && a.worker_id === p.id);
-      const days = att.length;
-      const earned = att.reduce((s: number) => s + (p.daily_wage || 0), 0);
+      const earned = att.reduce(
+        (sum: number, record: any) => sum + Number(record.daily_wage_snapshot ?? p.daily_wage ?? 0),
+        0
+      );
       const wd = demoDB.withdrawals.filter((w: any) => w.worker_id === p.id);
-      const approved = wd
-        .filter((w: any) => w.status === "approved")
-        .reduce((s: number, w: any) => s + w.amount, 0);
-      const pending = wd
-        .filter((w: any) => w.status === "pending")
-        .reduce((s: number, w: any) => s + w.amount, 0);
-      const deducted = demoDB.deductions
-        .filter((d: any) => d.worker_id === p.id)
-        .reduce((s: number, d: any) => s + d.amount, 0);
+      const approved = wd.filter((w: any) => w.status === "approved").reduce((s: number, w: any) => s + w.amount, 0);
+      const pending = wd.filter((w: any) => w.status === "pending").reduce((s: number, w: any) => s + w.amount, 0);
+      const deducted = demoDB.deductions.filter((d: any) => d.worker_id === p.id && !d.voided_at).reduce((s: number, d: any) => s + d.amount, 0);
+      const settledPaid = demoDB.settlements.filter((settlement: any) => settlement.worker_id === p.id && settlement.project_id == null && settlement.status === "paid").reduce((sum: number, settlement: any) => sum + Number(settlement.net_amount || 0), 0);
       return {
         worker_id: p.id,
         full_name: p.full_name,
@@ -234,13 +141,14 @@ export function workerBalances(): any[] {
         role: p.role,
         daily_wage: p.daily_wage,
         is_active: p.is_active,
-        days_worked: days,
+        days_worked: att.length,
         earned,
         withdrawn_approved: approved,
         withdrawn_pending: pending,
         deducted,
-        balance: earned - approved - deducted,
-        available: earned - approved - pending - deducted,
+        balance: earned - approved - deducted - settledPaid,
+        available: earned - approved - pending - deducted - settledPaid,
+        settled_paid: settledPaid,
       };
     });
 }
@@ -258,13 +166,13 @@ function rows(table: string): any[] {
         start_date: p.start_date,
         closed_at: p.closed_at,
         archived_at: p.closed_at,
-        workers_count: demoDB.worker_projects.filter((w: any) => w.project_id === p.id).length,
-        attendance_count: demoDB.attendance.filter((a: any) => a && a.project_id === p.id).length,
-        total_withdrawn: demoDB.withdrawals
-          .filter((w: any) => w.project_id === p.id)
-          .reduce((s: number, w: any) => s + w.amount, 0),
-        total_deductions: 0,
-        total_paid: 0,
+        workers_count: new Set(demoDB.attendance_projects
+          .filter((link: any) => link.project_id === p.id)
+          .map((link: any) => demoDB.attendance.find((a: any) => a.id === link.attendance_id)?.worker_id)
+          .filter(Boolean)).size,
+        attendance_count: new Set(demoDB.attendance_projects
+          .filter((link: any) => link.project_id === p.id)
+          .map((link: any) => link.attendance_id)).size,
       }));
   }
   if (table === "admin_users") {
@@ -285,6 +193,7 @@ function matchRow(r: any, filters: [string, any][]): boolean {
     const rv = r[k];
     if (v !== null && typeof v === "object") {
       if ("$ne" in v) return rv !== v.$ne;
+      if ("$is" in v) return rv === v.$is;
       if ("$in" in v) return v.$in.includes(rv);
       if ("$gte" in v) return rv >= v.$gte;
       if ("$lte" in v) return rv <= v.$lte;
@@ -316,8 +225,8 @@ function sortRows(rs: any[], key: string, dir: "asc" | "desc"): any[] {
 const NESTED_TABLES: Record<string, () => any[]> = {
   profiles: () => demoDB.profiles,
   projects: () => demoDB.projects,
-  sites: () => demoDB.sites,
   attendance: () => demoDB.attendance.filter(Boolean),
+  attendance_projects: () => demoDB.attendance_projects,
   withdrawals: () => demoDB.withdrawals,
   deductions: () => demoDB.deductions,
 };
@@ -392,11 +301,13 @@ function build(table: string) {
     filters: [string, any][];
     order: [string, "asc" | "desc"] | null;
     limit: number | null;
+    range: [number, number] | null;
     select: string | null;
   } = {
     filters: [],
     order: null,
     limit: null,
+    range: null,
     select: null,
   };
 
@@ -410,7 +321,8 @@ function build(table: string) {
   const result = () => {
     let rs = rows(table).filter((r) => matchRow(r, state.filters));
     if (state.order) rs = sortRows(rs, state.order[0], state.order[1]);
-    if (state.limit) rs = rs.slice(0, state.limit);
+    if (state.range) rs = rs.slice(state.range[0], state.range[1] + 1);
+    else if (state.limit) rs = rs.slice(0, state.limit);
     if (state.select) rs = rs.map((r) => expandRelations(r, state.select as string));
     return rs;
   };
@@ -496,6 +408,10 @@ function build(table: string) {
       state.filters.push([k, { $ne: v }]);
       return q;
     },
+    is: (k: string, v: any) => {
+      state.filters.push([k, { $is: v }]);
+      return q;
+    },
     in: (k: string, vs: any[]) => {
       state.filters.push([k, { $in: vs }]);
       return q;
@@ -516,6 +432,10 @@ function build(table: string) {
       state.limit = n;
       return q;
     },
+    range: (from: number, to: number) => {
+      state.range = [Math.max(0, from), Math.max(from - 1, to)];
+      return q;
+    },
     single: async () => {
       const rs = exec().data as any[];
       return { data: rs[0] ?? null, error: rs.length ? null : { message: "no rows" } };
@@ -532,6 +452,7 @@ function build(table: string) {
 
 // ============ AUTH MOCK ============
 let currentUser: any = null;
+export const DEMO_PASSWORD = "demo-only-pass";
 
 const authMock = {
   getSession: async () => ({
@@ -542,7 +463,10 @@ const authMock = {
     data: { user: currentUser ?? null },
     error: currentUser ? null : { message: "not logged in" },
   }),
-  signInWithPassword: async ({ email }: any) => {
+  signInWithPassword: async ({ email, password }: any) => {
+    if (password !== DEMO_PASSWORD) {
+      return { data: {}, error: { message: "Invalid login credentials" } };
+    }
     const local = ((email ?? "").split("@")[0] || "").toLowerCase();
     const p = demoDB.profiles.find(
       (x: any) =>
@@ -610,198 +534,379 @@ function fireAuth(event: string) {
 
 // ============ RPC MOCK ============
 const rpcMock = async (fn: string, args: any) => {
-  if (fn === "register_attendance") {
-    const worker = demoDB.profiles.find((p: any) => p.id === args.p_worker_id);
-    const existing = demoDB.attendance.find(
-      (a: any) => a && a.worker_id === args.p_worker_id && a.work_date === args.p_work_date
+  const now = () => new Date().toISOString();
+  const pushNotification = (userId: string, type: string, title: string, body: string, data: any = {}) => {
+    demoDB.notifications.unshift({ id: uid(), user_id: userId, type, title, body, data, is_read: false, created_at: now() });
+  };
+  const notifyAdmins = (type: string, title: string, body: string, data: any = {}) => {
+    demoDB.profiles
+      .filter((profile: any) => ["owner", "manager", "developer"].includes(profile.role) && profile.status === "active" && profile.is_active !== false)
+      .forEach((profile: any) => pushNotification(profile.id, type, title, body, data));
+  };
+  const activeProjects = () => demoDB.projects.filter((project: any) => project.status === "active");
+  const linkProjects = (attendanceId: string, projectIds: string[]) => {
+    for (const projectId of new Set(projectIds)) {
+      if (!demoDB.attendance_projects.some((link: any) =>
+        link.attendance_id === attendanceId && link.project_id === projectId
+      )) {
+        demoDB.attendance_projects.push({ attendance_id: attendanceId, project_id: projectId, created_at: now() });
+      }
+    }
+  };
+
+  if (fn === "health_check") return { data: "ok", error: null };
+  if (fn === "worker_app_config") {
+    return { data: { gps_enabled: false }, error: null };
+  }
+  if (fn === "system_stats") {
+    return { data: {
+      workers: demoDB.profiles.filter((profile: any) => profile.role === "worker").length,
+      admins: demoDB.profiles.filter((profile: any) => profile.role !== "worker").length,
+      pending: demoDB.profiles.filter((profile: any) => profile.status === "pending").length,
+      attendance: demoDB.attendance.length,
+      withdrawals: demoDB.withdrawals.length,
+      deductions: demoDB.deductions.length,
+      audit: demoDB.audit_log.length,
+      notifications: demoDB.notifications.length,
+      settlements: demoDB.settlements.length,
+    }, error: null };
+  }
+
+  if (fn === "developer_delete_worker") {
+    const developer = demoDB.profiles.find((profile: any) =>
+      profile.id === currentUser?.id && profile.role === "developer" &&
+      profile.status === "active" && profile.is_active !== false
     );
-    if (existing) {
-      existing.lat = args.p_lat ?? existing.lat;
-      existing.lng = args.p_lng ?? existing.lng;
-      demoDB.attendance_sites = demoDB.attendance_sites.filter(
-        (x: any) => x.attendance_id !== existing.id
-      );
-      (args.p_site_ids ?? []).forEach((sid: string) =>
-        demoDB.attendance_sites.push({
-          id: uid(),
-          attendance_id: existing.id,
-          site_id: sid,
-        })
-      );
-      return { data: existing.id, error: null };
+    if (!developer) return { data: null, error: { message: "حذف العامل متاح للمطوّر النشط فقط" } };
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    if (demoDB.attendance.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.withdrawals.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.deductions.some((row: any) => row.worker_id === worker.id) ||
+        demoDB.settlements.some((row: any) => row.worker_id === worker.id)) {
+      return { data: null, error: { message: "لا يمكن حذف العامل لوجود حضور أو سجلات مالية/تسويات مرتبطة به؛ أوقف العامل بدلًا من حذف سجله" } };
     }
-    const rec = {
-      id: uid(),
-      worker_id: args.p_worker_id,
-      project_id: demoDB.worker_projects.find((w: any) => w.worker_id === args.p_worker_id)?.project_id ?? null,
-      work_date: args.p_work_date,
-      source: "worker",
-      lat: args.p_lat ?? null,
-      lng: args.p_lng ?? null,
-      note: args.p_note ?? null,
-      created_by: args.p_worker_id,
-      created_at: new Date().toISOString(),
-    };
-    demoDB.attendance.push(rec);
-    demoDB.notifications.unshift({
-      id: uid(),
-      user_id: "demo-owner",
-      type: "attendance_new",
-      title: "حضور جديد",
-      body: `${worker?.full_name} سجّل حضوره`,
-      data: {},
-      is_read: false,
-      created_at: new Date().toISOString(),
-    });
-    if (args.p_site_ids) {
-      args.p_site_ids.forEach((sid: string) =>
-        demoDB.attendance_sites.push({ id: uid(), attendance_id: rec.id, site_id: sid })
-      );
+    const referenced = demoDB.profiles.some((profile: any) => profile.approved_by === worker.id) ||
+      demoDB.projects.some((row: any) => row.created_by === worker.id || row.archived_by === worker.id) ||
+      demoDB.attendance.some((row: any) => row.created_by === worker.id) ||
+      demoDB.withdrawals.some((row: any) => row.created_by === worker.id || row.decided_by === worker.id) ||
+      demoDB.deductions.some((row: any) => row.created_by === worker.id) ||
+      demoDB.settlements.some((row: any) => row.confirmed_by === worker.id);
+    if (referenced) return { data: null, error: { message: "لا يمكن حذف العامل لوجود سجلات مرتبطة بحسابه؛ أوقفه بدلًا من ذلك" } };
+    demoDB.worker_projects = demoDB.worker_projects.filter((row: any) => row.worker_id !== worker.id);
+    demoDB.site_workers = demoDB.site_workers.filter((row: any) => row.worker_id !== worker.id);
+    demoDB.notifications = demoDB.notifications.filter((row: any) => row.user_id !== worker.id);
+    demoDB.profiles = demoDB.profiles.filter((profile: any) => profile.id !== worker.id);
+    return { data: worker.id_card_url ?? null, error: null };
+  }
+
+  if (fn === "developer_delete_project") {
+    const developer = demoDB.profiles.find((profile: any) =>
+      profile.id === currentUser?.id && profile.role === "developer" &&
+      profile.status === "active" && profile.is_active !== false
+    );
+    if (!developer) return { data: null, error: { message: "حذف المشروع متاح للمطوّر النشط فقط" } };
+    const project = demoDB.projects.find((row: any) => row.id === args.p_project_id);
+    if (!project) return { data: null, error: { message: "المشروع غير موجود" } };
+    const siteIds = new Set(demoDB.sites.filter((site: any) => site.project_id === project.id).map((site: any) => site.id));
+    if (demoDB.attendance.some((row: any) => row.project_id === project.id) ||
+        demoDB.attendance_projects.some((row: any) => row.project_id === project.id) ||
+        (demoDB.attendance_sites ?? []).some((row: any) => siteIds.has(row.site_id)) ||
+        demoDB.withdrawals.some((row: any) => row.project_id === project.id) ||
+        demoDB.deductions.some((row: any) => row.project_id === project.id) ||
+        demoDB.settlements.some((row: any) => row.project_id === project.id)) {
+      return { data: null, error: { message: "لا يمكن حذف المشروع لوجود حضور أو حركات مالية/تسويات مرتبطة به؛ استخدم الأرشفة للحفاظ على السجلات" } };
     }
-    return { data: rec.id, error: null };
+    demoDB.worker_projects = demoDB.worker_projects.filter((row: any) => row.project_id !== project.id);
+    demoDB.site_workers = demoDB.site_workers.filter((row: any) => !siteIds.has(row.site_id));
+    demoDB.sites = demoDB.sites.filter((site: any) => site.project_id !== project.id);
+    demoDB.projects = demoDB.projects.filter((row: any) => row.id !== project.id);
+    return { data: null, error: null };
+  }
+
+  if (fn === "register_attendance_multi" || fn === "admin_register_attendance_multi") {
+    if (import.meta.env.VITE_SMOKE_TEST === "1") {
+      demoDB.lastAttendanceRpcArgs = { fn, args: { ...args } };
+    }
+    const isAdmin = fn === "admin_register_attendance_multi";
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker || worker.status === "rejected" || worker.is_active === false) {
+      return { data: null, error: { message: "حساب العامل غير مفعّل" } };
+    }
+    const selected = Array.isArray(args.p_project_ids) ? args.p_project_ids : [];
+    if (selected.some((id: any) => typeof id !== "string") || new Set(selected).size !== selected.length) {
+      return { data: null, error: { message: "قائمة المشاريع غير صحيحة" } };
+    }
+    if (!selected.length) {
+      return { data: null, error: { message: "اختر مشروعًا نشطًا واحدًا على الأقل" } };
+    }
+    const openProjectIds = new Set(activeProjects().map((project: any) => project.id));
+    if (selected.some((id: string) => !openProjectIds.has(id))) {
+      return { data: null, error: { message: "اختر مشاريع مفتوحة فقط" } };
+    }
+    const existing = demoDB.attendance.find((row: any) =>
+      row.worker_id === worker.id && row.work_date === args.p_work_date
+    );
+    let attendance = existing;
+    if (!attendance) {
+      attendance = {
+        id: uid(),
+        worker_id: worker.id,
+        project_id: selected[0] ?? null,
+        work_date: args.p_work_date,
+        daily_wage_snapshot: Number(worker.daily_wage ?? 0),
+        source: isAdmin ? "admin" : "worker",
+        lat: null,
+        lng: null,
+        note: args.p_note ?? null,
+        created_by: isAdmin ? (currentUser?.id ?? "demo-owner") : worker.id,
+        created_at: now(),
+      };
+      demoDB.attendance.push(attendance);
+      demoDB.notifications.unshift({
+        id: uid(),
+        user_id: isAdmin ? worker.id : "demo-owner",
+        type: "attendance_new",
+        title: isAdmin ? "تم تسجيل حضورك" : "حضور جديد",
+        body: isAdmin ? "سجلت الإدارة حضورك" : `${worker.full_name} سجّل حضوره`,
+        data: {},
+        is_read: false,
+        created_at: now(),
+      });
+    } else {
+      attendance.note = args.p_note ?? attendance.note;
+    }
+    linkProjects(attendance.id, selected);
+    return { data: attendance.id, error: null };
+  }
+
+  if (fn === "add_attendance_project") {
+    const attendance = demoDB.attendance.find((row: any) => row.id === args.p_attendance_id);
+    const project = activeProjects().find((row: any) => row.id === args.p_project_id);
+    if (!attendance || attendance.worker_id !== currentUser?.id || !project) {
+      return { data: null, error: { message: "المشروع غير متاح أو مغلق" } };
+    }
+    linkProjects(attendance.id, [project.id]);
+    return { data: null, error: null };
   }
 
   if (fn === "register_withdrawal") {
-    const bal = workerBalances().find((b) => b.worker_id === args.p_worker_id);
-    if (args.p_amount > (bal?.available ?? 0)) {
-      return {
-        data: null,
-        error: { message: `مش هتاخد أكتر من اللي اشتغلته — متاح تاخد ${bal?.available ?? 0} جنيه` },
-      };
+    const amount = Number(args.p_amount);
+    if (!Number.isFinite(amount) || amount <= 0 || !args.p_request_id || args.p_project_id != null) {
+      return { data: null, error: { message: "المبلغ أو بيانات طلب الصرف غير صحيحة؛ الصرف من الرصيد العام فقط" } };
     }
-    const autoLimit = demoDB.settings[0].value.auto_approve_limit;
+    const previous = demoDB.withdrawals.find((row: any) => row.client_request_id === args.p_request_id);
+    if (previous) {
+      if (previous.worker_id !== args.p_worker_id || Number(previous.amount) !== amount) {
+        return { data: null, error: { message: "رقم العملية مستخدم لطلب مختلف" } };
+      }
+      return { data: previous, error: null };
+    }
+    const balance = workerBalances().find((row: any) => row.worker_id === args.p_worker_id);
+    const available = Number(balance?.available ?? 0);
+    if (amount > Math.max(available, 0)) {
+      return { data: null, error: { message: `المتاح من رصيدك العام ${Math.max(available, 0)} جنيه فقط` } };
+    }
+    const autoLimit = Number(demoDB.settings[0]?.value?.auto_approve_limit ?? 500);
     const rec = {
-      id: uid(),
-      worker_id: args.p_worker_id,
-      project_id: demoDB.worker_projects.find((w: any) => w.worker_id === args.p_worker_id)?.project_id ?? null,
-      amount: args.p_amount,
-      note: args.p_note ?? null,
-      status: args.p_amount <= autoLimit ? "approved" : "pending",
-      decided_by: args.p_amount <= autoLimit ? "demo-owner" : null,
-      decided_at: args.p_amount <= autoLimit ? new Date().toISOString() : null,
-      decision_note: null,
-      created_by: args.p_worker_id,
-      created_at: new Date().toISOString(),
+      id: uid(), worker_id: args.p_worker_id, project_id: null, amount,
+      note: args.p_note ?? null, client_request_id: args.p_request_id,
+      status: amount <= autoLimit ? "approved" : "pending",
+      decided_by: amount <= autoLimit ? "demo-owner" : null,
+      decided_at: amount <= autoLimit ? now() : null,
+      decision_note: null, created_by: args.p_worker_id, created_at: now(),
     };
     demoDB.withdrawals.push(rec);
+    const approved = rec.status === "approved";
+    pushNotification(args.p_worker_id, approved ? "withdrawal_auto" : "withdrawal_new",
+      approved ? "تمت الموافقة على طلب السحب" : "طلب السحب قيد المراجعة",
+      approved ? `تمت الموافقة تلقائيًا على طلبك بمبلغ ${amount} ج.م` : `طلبك بمبلغ ${amount} ج.م بانتظار قرار المالك`,
+      { withdrawal_id: rec.id, amount, status: rec.status });
+    notifyAdmins(approved ? "withdrawal_auto" : "withdrawal_pending",
+      approved ? "صرف تلقائي" : "مطلوب موافقة", `${demoDB.profiles.find((p: any) => p.id === args.p_worker_id)?.full_name ?? "عامل"} طلب ${amount} ج.م`,
+      { worker_id: args.p_worker_id, withdrawal_id: rec.id, amount, status: rec.status });
     return { data: rec, error: null };
   }
 
   if (fn === "approve_worker") {
-    demoDB.profiles.forEach((p: any) => {
-      if (p.id === args.p_worker_id) {
-        p.status = "active";
-        p.daily_wage = args.p_daily_wage ?? p.daily_wage;
-        p.approved_at = new Date().toISOString();
-      }
-    });
-    (args.p_site_ids ?? []).forEach((sid: string) => {
-      if (!demoDB.site_workers.some((x: any) => x.site_id === sid && x.worker_id === args.p_worker_id)) {
-        demoDB.site_workers.push({
-          site_id: sid,
-          worker_id: args.p_worker_id,
-          assigned_at: new Date().toISOString(),
-        });
-      }
-    });
-    if (args.p_project_id) {
-      demoDB.worker_projects.push({
-        id: uid(),
-        worker_id: args.p_worker_id,
-        project_id: args.p_project_id,
-        daily_wage: args.p_daily_wage,
-        joined_at: new Date().toISOString(),
-      });
-    }
-    demoDB.notifications.unshift({
-      id: uid(),
-      user_id: args.p_worker_id,
-      type: "account_approved",
-      title: "تم تفعيل حسابك",
-      body: "تقدر دلوقاني تسجّل حضورك وتاخد فلوك",
-      data: {},
-      is_read: false,
-      created_at: new Date().toISOString(),
-    });
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    worker.status = "active";
+    worker.daily_wage = args.p_daily_wage ?? worker.daily_wage;
+    worker.approved_at = now();
+    demoDB.notifications.unshift({ id: uid(), user_id: worker.id, type: "account_approved", title: "تم تفعيل حسابك", body: "يمكنك الآن تسجيل الحضور ومراجعة رصيدك العام", data: {}, is_read: false, created_at: now() });
     return { data: null, error: null };
   }
 
   if (fn === "reject_worker") {
-    demoDB.profiles.forEach((p: any) => {
-      if (p.id === args.p_worker_id) {
-        p.status = "rejected";
-        p.reject_reason = args.p_reason ?? null;
+    demoDB.profiles.forEach((profile: any) => {
+      if (profile.id === args.p_worker_id) {
+        profile.status = "rejected";
+        profile.reject_reason = args.p_reason ?? null;
       }
     });
-    return { data: null, error: null };
-  }
-
-  if (fn === "add_attendance_site") {
-    const dup = demoDB.attendance_sites.find(
-      (x: any) => x.attendance_id === args.p_attendance_id && x.site_id === args.p_site_id
-    );
-    if (!dup) {
-      demoDB.attendance_sites.push({
-        id: uid(),
-        attendance_id: args.p_attendance_id,
-        site_id: args.p_site_id,
-      });
-    }
     return { data: null, error: null };
   }
 
   if (fn === "create_worker") {
     const id = uid();
     demoDB.profiles.push({
-      id,
-      full_name: args.p_full_name,
-      phone: args.p_phone,
-      role: "worker",
-      daily_wage: args.p_daily_wage ?? 0,
-      is_active: true,
-      created_at: new Date().toISOString(),
+      id, full_name: args.p_full_name, phone: args.p_phone, role: "worker",
+      daily_wage: args.p_daily_wage ?? 0, is_active: true, status: "active",
+      created_at: now(),
     });
-    (args.p_site_ids ?? []).forEach((sid: string) =>
-      demoDB.site_workers.push({ site_id: sid, worker_id: id, assigned_at: new Date().toISOString() })
-    );
-    if (args.p_project_id)
-      demoDB.worker_projects.push({
-        id: uid(),
-        worker_id: id,
-        project_id: args.p_project_id,
-        daily_wage: args.p_daily_wage,
-        joined_at: new Date().toISOString(),
-      });
     return { data: id, error: null };
   }
 
+  if (fn === "save_worker_admin_details" || fn === "update_worker_details") {
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    const phone = String(args.p_phone ?? "").replace(/[^0-9]/g, "");
+    const wage = Number(args.p_daily_wage);
+    if (String(args.p_full_name ?? "").trim().length < 3 || phone.length < 10 || !Number.isFinite(wage) || wage < 0) {
+      return { data: null, error: { message: "بيانات العامل غير صحيحة" } };
+    }
+    worker.full_name = String(args.p_full_name).trim();
+    worker.phone = phone;
+    worker.daily_wage = wage;
+    worker.is_active = Boolean(args.p_is_active);
+    return { data: null, error: null };
+  }
+
+  if (fn === "add_worker_deduction") {
+    const amount = Number(args.p_amount);
+    if (!Number.isFinite(amount) || amount <= 0 || String(args.p_reason ?? "").trim().length === 0 || args.p_project_id != null) {
+      return { data: null, error: { message: "اكتب مبلغًا وسببًا صحيحين؛ الخصم على الحساب العام فقط" } };
+    }
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    const deduction = { id: uid(), worker_id: worker.id, project_id: null, amount, reason: String(args.p_reason).trim(), created_by: currentUser?.id ?? "demo-owner", created_at: now(), voided_at: null, voided_by: null, void_reason: null };
+    demoDB.deductions.push(deduction);
+    pushNotification(worker.id, "deduction_new", "تم تسجيل خصم على حسابك", `المبلغ: ${amount} ج.م — السبب: ${deduction.reason}`, { deduction_id: deduction.id, amount, reason: deduction.reason });
+    notifyAdmins("deduction_new", "خصم جديد", `${worker.full_name} — خصم ${amount} ج.م: ${deduction.reason}`, { worker_id: worker.id, deduction_id: deduction.id, amount, reason: deduction.reason });
+    return { data: null, error: null };
+  }
+
+  if (fn === "reverse_worker_deduction") {
+    if (!demoDB.profiles.some((profile: any) => profile.id === currentUser?.id && ["owner", "manager", "developer"].includes(profile.role))) {
+      return { data: null, error: { message: "إلغاء الخصم متاح للإدارة النشطة فقط" } };
+    }
+    const reason = String(args.p_reason ?? "").trim();
+    if (reason.length < 3 || reason.length > 500) return { data: null, error: { message: "اكتب سببًا واضحًا من 3 إلى 500 حرف" } };
+    const deduction = demoDB.deductions.find((row: any) => row.id === args.p_deduction_id);
+    if (!deduction) return { data: null, error: { message: "الخصم غير موجود" } };
+    if (deduction.voided_at) {
+      if (deduction.voided_by === currentUser?.id && deduction.void_reason === reason) return { data: null, error: null };
+      return { data: null, error: { message: "تم إلغاء هذا الخصم بالفعل" } };
+    }
+    const worker = demoDB.profiles.find((profile: any) => profile.id === deduction.worker_id);
+    deduction.voided_at = now();
+    deduction.voided_by = currentUser?.id ?? null;
+    deduction.void_reason = reason;
+    pushNotification(deduction.worker_id, "deduction_reversed", "تم إلغاء خصم من حسابك", `أُلغي خصم بقيمة ${deduction.amount} ج.م — السبب: ${reason}`, { deduction_id: deduction.id, amount: deduction.amount, reason });
+    notifyAdmins("deduction_reversed", "تم إلغاء خصم", `${worker?.full_name ?? "عامل"} — إلغاء خصم ${deduction.amount} ج.م: ${reason}`, { worker_id: deduction.worker_id, deduction_id: deduction.id, amount: deduction.amount, reason });
+    return { data: null, error: null };
+  }
+
+  if (fn === "create_worker_settlement") {
+    if (!demoDB.profiles.some((profile: any) => profile.id === currentUser?.id && ["owner", "manager", "developer"].includes(profile.role))) {
+      return { data: null, error: { message: "صرف التسوية متاح للإدارة النشطة فقط" } };
+    }
+    const existing = demoDB.settlements.find((row: any) => row.client_request_id === args.p_request_id);
+    if (existing) {
+      if (existing.worker_id !== args.p_worker_id || existing.project_id != null || existing.status !== "paid") return { data: null, error: { message: "رقم العملية مستخدم لتسوية مختلفة" } };
+      return { data: existing, error: null };
+    }
+    const worker = demoDB.profiles.find((profile: any) => profile.id === args.p_worker_id && profile.role === "worker");
+    if (!worker) return { data: null, error: { message: "العامل غير موجود" } };
+    if (demoDB.withdrawals.some((row: any) => row.worker_id === worker.id && row.status === "pending")) {
+      return { data: null, error: { message: "احسم طلبات الصرف المعلّقة قبل تسوية رصيد العامل" } };
+    }
+    const lastSettlement = demoDB.settlements
+      .filter((row: any) => row.worker_id === worker.id && row.project_id == null && row.status === "paid")
+      .map((row: any) => row.paid_at ?? row.created_at)
+      .sort()
+      .at(-1);
+    const afterLast = (row: any) => !lastSettlement || row.created_at > lastSettlement;
+    const attendance = demoDB.attendance.filter((row: any) => row.worker_id === worker.id && afterLast(row));
+    const withdrawals = demoDB.withdrawals.filter((row: any) => row.worker_id === worker.id && row.status === "approved" && afterLast(row));
+    const deductions = demoDB.deductions.filter((row: any) => row.worker_id === worker.id && (
+      (!row.voided_at && afterLast(row))
+      || (row.voided_at && lastSettlement && row.created_at <= lastSettlement && row.voided_at > lastSettlement)
+    ));
+    const earned = attendance.reduce((sum: number, row: any) => sum + Number(row.daily_wage_snapshot ?? worker.daily_wage ?? 0), 0);
+    const withdrawn = withdrawals.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
+    const deducted = deductions.reduce((sum: number, row: any) => sum + (row.voided_at ? -Number(row.amount) : Number(row.amount)), 0);
+    const balance = Number(workerBalances().find((row: any) => row.worker_id === worker.id)?.balance ?? 0);
+    if (balance <= 0) return { data: null, error: { message: "مفيش رصيد موجب مستحق للتسوية" } };
+    if (Math.round((earned - withdrawn - deducted) * 100) !== Math.round(balance * 100)) {
+      return { data: null, error: { message: "تغيّر سجل الحساب ويحتاج مراجعة قبل الصرف؛ أعد تحميل الصفحة" } };
+    }
+    const settlement = {
+      id: uid(), worker_id: worker.id, project_id: null,
+      days_worked: attendance.length, daily_wage: Number(worker.daily_wage ?? 0),
+      total_earned: earned, total_withdrawn: withdrawn, total_deductions: deducted,
+      net_amount: balance, status: "paid", worker_ack_at: null,
+      confirmed_by: currentUser?.id ?? null, paid_at: now(), created_at: now(),
+      client_request_id: args.p_request_id,
+    };
+    demoDB.settlements.push(settlement);
+    pushNotification(worker.id, "settlement_paid", "تم تسجيل صرف مستحقاتك", `تم تسجيل صرف مبلغ ${balance} ج.م`, { settlement_id: settlement.id, amount: balance });
+    return { data: settlement, error: null };
+  }
+
   if (fn === "reset_worker_password") return { data: null, error: null };
+  if (fn === "admin_update_user") {
+    const profile = demoDB.profiles.find((row: any) => row.id === args.p_user_id);
+    if (profile) Object.assign(profile, { full_name: args.p_full_name ?? profile.full_name, username: args.p_username ?? profile.username, role: args.p_role ?? profile.role, status: args.p_status ?? profile.status, daily_wage: args.p_daily_wage ?? profile.daily_wage, is_active: args.p_is_active ?? profile.is_active });
+    return { data: null, error: null };
+  }
+  if (fn === "set_my_id_card") return { data: null, error: null };
+
   if (fn === "export_project_data") {
-    const pid = args.p_project_id;
-    const proj = demoDB.projects.find((p: any) => p.id === pid);
-    const workerIds = demoDB.worker_projects
-      .filter((w: any) => w.project_id === pid)
-      .map((w: any) => w.worker_id);
+    const projectId = args.p_project_id;
+    const project = demoDB.projects.find((row: any) => row.id === projectId);
+    if (!project) return { data: null, error: { message: "المشروع غير موجود" } };
+    const attendanceIds = new Set(demoDB.attendance_projects.filter((link: any) => link.project_id === projectId).map((link: any) => link.attendance_id));
+    const workerIds = new Set(demoDB.attendance.filter((row: any) => attendanceIds.has(row.id)).map((row: any) => row.worker_id));
+    const attendance = demoDB.attendance.filter((row: any) => attendanceIds.has(row.id)).map((row: any) => ({
+      attendance_id: row.id,
+      work_date: row.work_date,
+      full_name: demoDB.profiles.find((profile: any) => profile.id === row.worker_id)?.full_name ?? "",
+      source: row.source,
+      created_at: row.created_at,
+      projects: demoDB.attendance_projects.filter((link: any) => link.attendance_id === row.id)
+        .map((link: any) => demoDB.projects.find((item: any) => item.id === link.project_id)?.name)
+        .filter(Boolean),
+    }));
     return {
       data: {
-        project: proj ?? null,
-        workers: demoDB.profiles.filter((p: any) => workerIds.includes(p.id)),
-        attendance: demoDB.attendance.filter((a: any) => a && a.project_id === pid),
-        withdrawals: demoDB.withdrawals.filter((w: any) => w.project_id === pid),
-        deductions: demoDB.deductions.filter((d: any) => d.project_id === pid),
-        settlements: demoDB.settlements.filter((s: any) => s.project_id === pid),
+        project,
+        workers: demoDB.profiles.filter((profile: any) => workerIds.has(profile.id)).map((profile: any) => ({ worker_id: profile.id, full_name: profile.full_name, phone: profile.phone })),
+        attendance,
       },
       error: null,
     };
   }
 
   if (fn === "close_project") {
-    demoDB.projects.forEach((p: any) => {
-      if (p.id === args.p_project_id) {
-        p.status = "closed";
-        p.closed_at = new Date().toISOString();
-      }
-    });
+    const project = demoDB.projects.find((row: any) => row.id === args.p_project_id);
+    if (!project) return { data: null, error: { message: "المشروع غير موجود" } };
+    if (project.status === "closed") return { data: null, error: { message: "المشروع مؤرشف بالفعل" } };
+    project.status = "closed";
+    project.closed_at = now();
+    project.archived_at = project.closed_at;
+    project.end_date ??= project.closed_at.slice(0, 10);
+    notifyAdmins("project_archived", "تمت أرشفة مشروع", `تم إغلاق مشروع ${project.name}`, { project_id: project.id, project_name: project.name });
+    const attendanceIds = new Set(demoDB.attendance_projects
+      .filter((link: any) => link.project_id === project.id)
+      .map((link: any) => link.attendance_id));
+    const workerIds = new Set<string>(demoDB.attendance
+      .filter((row: any) => attendanceIds.has(row.id))
+      .map((row: any) => String(row.worker_id)));
+    for (const workerId of workerIds) {
+      pushNotification(workerId, "project_archived", "تم إغلاق المشروع", `تم إغلاق مشروع ${project.name}؛ سجلات حضورك السابقة محفوظة في كشفك`, { project_id: project.id, project_name: project.name });
+    }
     return { data: null, error: null };
   }
 
@@ -809,20 +914,6 @@ const rpcMock = async (fn: string, args: any) => {
 };
 
 // ============ CLIENT ============
-export function isDemoMode(): boolean {
-  const url = import.meta.env.VITE_SUPABASE_URL as string;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-  // Force صريح من .env
-  if (import.meta.env.VITE_DEMO_MODE === "1") return true;
-  if (import.meta.env.VITE_DEMO_MODE === "0") return false;
-  // لو الـ URL أو الـ key ناقصين أو placeholders → وضع تجريبي
-  if (!url || !key) return true;
-  if (url.includes("placeholder") || key.includes("placeholder")) return true;
-  // الـ publishable key الجديد لازم يكون طويل (sb_publishable_...)
-  if (key.length < 30) return true;
-  return false;
-}
-
 const storageMock = {
   from: (_bucket: string) => ({
     upload: async (path: string) => {
@@ -837,6 +928,10 @@ const storageMock = {
     }),
     createSignedUrl: async (_path: string) => ({
       data: { signedUrl: "data:image/svg+xml;base64,PHN2Zy8+" },
+      error: null,
+    }),
+    remove: async (paths: string[]) => ({
+      data: paths.map((name) => ({ name })),
       error: null,
     }),
   }),

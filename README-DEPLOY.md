@@ -1,82 +1,51 @@
-# 🚀 النشر على Cloudflare Pages — خطوة بخطوة
+# نشر AquaDior على Cloudflare Pages
 
-## 1️⃣ ارفع الكود على GitHub
+## قبل النشر
 
-| # | اعمل إيه |
-|---|---|
-| 1 | افتح https://github.com/new |
-| 2 | اسم الـ repo: `worker-app` |
-| 3 | خليه **Private** |
-| 4 | دوس **Create repository** |
-| 5 | في صفحة الـ repo دوس: **uploading an existing file** |
-| 6 | **اسحب ملف `worker-app-upload.zip`** — أو افتحه وارفع الملفات اللي جوه |
-| 7 | دوس **Commit changes** |
+1. جهّز Supabase staging، وطبّق SQL القانوني بعد نسخة احتياطية. اتبع إعداد المصادقة وأول مالك في [`README.md`](./README.md).
+2. شغّل محليًا:
 
-> ⚠️ **مترفعش** `.env` ولا `node_modules` ولا `dist` — دول بيتعملوا لوحدهم.
+```bash
+npm ci
+npm run lint
+npm run build
+npm run test:smoke
+```
 
----
+3. اختبر تسجيل الدخول والأدوار وسياسات RLS في staging؛ Smoke Test وحده لا يختبر قاعدة حقيقية.
 
-## 2️⃣ اربط Cloudflare Pages بـ GitHub
+## إعداد Cloudflare Pages
 
-| # | اعمل إيه |
-|---|---|
-| 1 | افتح https://dash.cloudflare.com |
-| 2 | من القائمة: **Workers & Pages** |
-| 3 | دوس **Create** → **Pages** → **Connect to Git** |
-| 4 | اختار repo: **worker-app** |
-| 5 | املا الإعدادات: |
+1. افتح **Workers & Pages → Create → Pages → Connect to Git**، ثم اختر مستودع AquaDior.
+2. اضبط:
 
 | الإعداد | القيمة |
 |---|---|
-| **Framework preset** | `Vite` |
-| **Build command** | `npm run build` |
-| **Build output directory** | `dist` |
-| **Root directory** | `/` (سيبها فاضية) |
+| Framework preset | Vite |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Root directory | `/` |
 
-### Environment variables (مهم جدًا!)
+3. أضف متغيرات البناء في **Settings → Environment variables** لكل من Production وPreview:
 
-دوس **Add variable** وضيف الاتنين دول:
-
-| Name | Value |
+| المتغير | القيمة |
 |---|---|
-| `VITE_SUPABASE_URL` | `https://cgqwzwnxhbayghramabo.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | الـ anon key بتاعتك |
+| `VITE_SUPABASE_URL` | عنوان مشروع Supabase الخاص بك |
+| `VITE_SUPABASE_ANON_KEY` | المفتاح العام anon/publishable للمشروع |
+| `VITE_DEMO_MODE` | `0` أو اتركه غير مضبوط عند النشر الحقيقي |
 
-> ⚠️ دوس **Save and Deploy** — استنى دقيقة وجاهز ✅
+لا تضف Service Role Key أو كلمة مرور أو Bot Token إلى متغير يبدأ بـ `VITE_`؛ كل ما يبدأ به يُضمّن في ملفات المتصفح. يسمح `VITE_DEMO_MODE=1` بتشغيل بيانات وهمية محلية فقط، ولا يصلح لنشر الإنتاج أو حفظ بيانات حقيقية.
 
----
+4. نفّذ النشر، ثم اختبر صفحة الدخول والتسجيل ومسارات التطبيق على رابط HTTPS النهائي. أعد ضبط `APP_ORIGIN` في أسرار Edge Function إلى نفس أصل الموقع إذا كنت تستخدم Telegram.
 
-## 3️⃣ اللينك جاهز
+## PWA وSPA
 
-```
-https://worker-app.pages.dev
-```
+المستودع يتضمن `public/_redirects` لإعادة توجيه مسارات SPA إلى `index.html`. ملفات الواجهة الثابتة تُخزّن عبر Service Worker، لكن بيانات Supabase لا تُخزّن في كاش PWA. طابور IndexedDB لا يغني عن اختبار سيناريوهات الاتصال الفعلية.
 
-**ابعت اللينك ده للعمال على الواتساب** 📲
+## استخدام التطبيق على iPhone
 
----
+لا يحتاج العامل إلى APK: بعد نشر نسخة Production على Cloudflare Pages (أو نطاق HTTPS معتمد)، يفتح الرابط في Safari ثم يختار **مشاركة → إضافة إلى الشاشة الرئيسية**. يصبح التطبيق أيقونة مستقلة على الهاتف؛ وهذا PWA وليس تطبيق TestFlight. رابط الموقع الفعلي لا يوجد داخل المستودع حتى الآن؛ Cloudflare يعرضه بعد إنشاء مشروع Pages وربطه بالإعدادات أعلاه، ويمكن حينها اعتماد نطاق مثل `https://<اسم-المشروع>.pages.dev` أو نطاق الشركة.
 
-# 🔄 بعد كده — أي تعديل
+## ملاحظة
 
-```bash
-git add .
-git commit -m "تعديل"
-git push
-```
-
-**Cloudflare هينشر لوحده في دقيقة** ✅
-
----
-
-# 🔑 لو عايز تستخدم GitHub Actions بدل Connect to Git
-
-الملف `.github/workflows/deploy.yml` جاهز. بس محتاج تضيف 4 Secrets في:
-`GitHub → Settings → Secrets and variables → Actions → New repository secret`
-
-| Secret | منين |
-|---|---|
-| `VITE_SUPABASE_URL` | `https://cgqwzwnxhbayghramabo.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | الـ anon key |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare → Workers & Pages (مكتوب في اليمين) |
-
+الـ workflow الموجود في `.github/workflows/build-apk.yml` خاص ببناء APK فقط؛ لا يوجد workflow نشر تلقائي إلى Cloudflare في هذا المستودع. Cloudflare Pages يبني عند ربطه مباشرةً بـ GitHub.

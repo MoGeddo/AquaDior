@@ -1,25 +1,29 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
 import { db } from "../../lib/db";
 import { money } from "../../lib/calc";
 import { Modal } from "../../components/Modal";
+import { useDialog } from "../../components/DialogProvider";
+import AppIcon from "../../components/AppIcon";
+import SearchField from "../../components/SearchField";
 import type { Profile } from "../../lib/types";
 
 const ROLE_LABEL: Record<string, string> = {
-  owner: "👑 مالك",
-  manager: "🧑‍💼 مدير",
-  developer: "🛠️ مطوّر",
-  worker: "👷 عامل",
+  owner: "مالك",
+  manager: "مدير",
+  developer: "مطوّر",
+  worker: "عامل",
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  active: "✅ شغّال",
-  pending: "⏳ مستني تفعيل",
-  rejected: "🚫 مرفوض",
-  suspended: "⏸ موقوف",
+  active: "شغّال",
+  pending: "مستني تفعيل",
+  rejected: "مرفوض",
+  suspended: "موقوف",
 };
 
 export default function Developer() {
+  const { confirm } = useDialog();
   const [tab, setTab] = useState<"users" | "diag" | "audit">("users");
   const [users, setUsers] = useState<Profile[]>([]);
   const [q, setQ] = useState("");
@@ -30,21 +34,22 @@ export default function Developer() {
   const [logs, setLogs] = useState<any[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
 
-  async function load() {
+  const load = useCallback(async () => {
     const { data } = await supabase
       .from("profiles")
       .select("*")
       .order("created_at", { ascending: false });
-    setUsers((data ?? []) as Profile[]);
+    const userRows = (data ?? []) as Profile[];
+    setUsers(userRows);
 
     if (!DEMO_MODE) {
       const { data: s } = await supabase.rpc("system_stats");
       if (s) setStats(s);
     } else {
       setStats({
-        workers: users.filter((u) => u.role === "worker").length,
-        admins: users.filter((u) => u.role !== "worker").length,
-        pending: users.filter((u) => u.status === "pending").length,
+        workers: userRows.filter((u) => u.role === "worker").length,
+        admins: userRows.filter((u) => u.role !== "worker").length,
+        pending: userRows.filter((u) => u.status === "pending").length,
         attendance: 0,
         withdrawals: 0,
         deductions: 0,
@@ -74,11 +79,11 @@ export default function Developer() {
       (p ?? []).forEach((x: any) => (m[x.id] = x.full_name));
       setNames(m);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   const filtered = users.filter(
     (u) =>
@@ -94,19 +99,22 @@ export default function Developer() {
           className={`btn btn-sm ${tab === "users" ? "btn-primary" : ""}`}
           onClick={() => setTab("users")}
         >
-          👥 كل اليوزرات ({users.length})
+          <AppIcon name="users" size={17} />
+          كل اليوزرات ({users.length})
         </button>
         <button
           className={`btn btn-sm ${tab === "diag" ? "btn-primary" : ""}`}
           onClick={() => setTab("diag")}
         >
-          🔧 التشخيص
+          <AppIcon name="activity" size={17} />
+          التشخيص
         </button>
         <button
           className={`btn btn-sm ${tab === "audit" ? "btn-primary" : ""}`}
           onClick={() => setTab("audit")}
         >
-          🛡️ سجل التعديلات
+          <AppIcon name="shieldCheck" size={17} />
+          سجل التعديلات
         </button>
       </div>
 
@@ -115,21 +123,22 @@ export default function Developer() {
       {/* ============ كل اليوزرات ============ */}
       {tab === "users" && (
         <>
-          <div className="flex-between mb">
-            <input
-              className="input"
-              style={{ maxWidth: 300 }}
-              placeholder="🔍 ابحث بالاسم أو اليوزر أو الموبايل"
+          <div className="flex-between mb wrap">
+            <SearchField
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={setQ}
+              maxWidth={300}
+              ariaLabel="البحث في حسابات المستخدمين"
+              placeholder="ابحث بالاسم أو اسم المستخدم أو الموبايل"
             />
-            <span className="badge teal">
-              🛠️ مطوّر — تقدر تعدّل أي يوزر
+            <span className="badge teal icon-label">
+              <AppIcon name="wrench" size={16} />
+              مطوّر — تقدر تعدّل أي يوزر
             </span>
           </div>
 
           <div className="card">
-            <div className="table-wrap">
+            <div className="table-wrap" role="region" aria-label="جدول حسابات المستخدمين" tabIndex={0}>
               <table>
                 <thead>
                   <tr>
@@ -173,7 +182,8 @@ export default function Developer() {
                       <td className="num">—</td>
                       <td>
                         <button className="btn btn-sm" onClick={() => setEditing(u)}>
-                          ✏️ تعديل
+                          <AppIcon name="pencil" size={16} />
+                          تعديل
                         </button>
                       </td>
                     </tr>
@@ -211,7 +221,9 @@ export default function Developer() {
 
           <div className="grid-2">
             <div className="card">
-              <div className="card-title">📦 حجم الداتا</div>
+              <div className="card-title">
+                <span className="icon-label"><AppIcon name="database" size={18} /><span>حجم الداتا</span></span>
+              </div>
               <div className="row">
                 <span className="muted">سجلات حضور</span>
                 <b className="num">{stats?.attendance ?? 0}</b>
@@ -239,7 +251,9 @@ export default function Developer() {
             </div>
 
             <div className="card">
-              <div className="card-title">🔧 حالة النظام</div>
+              <div className="card-title">
+                <span className="icon-label"><AppIcon name="activity" size={18} /><span>حالة النظام</span></span>
+              </div>
               <div className="row">
                 <span className="muted">الوضع</span>
                 <span className="badge teal">
@@ -268,14 +282,31 @@ export default function Developer() {
                   </span>
                 </div>
               ))}
-              <button className="btn btn-block mt" onClick={() => db.queue.clear()}>
-                🗑 امسح العمليات المستنية
+              <button
+                className="btn btn-block mt"
+                onClick={async () => {
+                  const accepted = await confirm({
+                    title: "مسح طابور المزامنة من هذا الجهاز؟",
+                    message: `سيتم حذف ${queue.length} عملية محفوظة محليًا، بما فيها العمليات التي قد تكون ما زالت تنتظر المزامنة. لن تُحذف سجلات سبق حفظها على الخادم.`,
+                    confirmText: "مسح العمليات المحلية",
+                    cancelText: "إبقاء العمليات",
+                    tone: "danger",
+                  });
+                  if (!accepted) return;
+                  await db.queue.clear();
+                  await load();
+                }}
+              >
+                <AppIcon name="trash2" size={17} />
+                امسح العمليات المستنية
               </button>
             </div>
           </div>
 
           <div className="card">
-            <div className="card-title">🛠️ حلول سريعة</div>
+            <div className="card-title">
+              <span className="icon-label"><AppIcon name="wrench" size={18} /><span>حلول سريعة</span></span>
+            </div>
             <p className="small muted">
               لو حد نسي اسم المستخدم → دور عليه في تبويب <b>كل اليوزرات</b> بالموبايل.
               <br />
@@ -294,7 +325,7 @@ export default function Developer() {
           <div className="card-title">
             <span>كل تعديل اتعمل في النظام — مين وإمتى</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap" role="region" aria-label="سجل تعديلات النظام" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -350,7 +381,7 @@ export default function Developer() {
           onClose={() => setEditing(null)}
           onDone={async () => {
             setEditing(null);
-            setMsg("تم الحفظ ✅");
+            setMsg("تم الحفظ");
             await load();
           }}
         />
@@ -377,11 +408,18 @@ function EditUser({
   const [newPass, setNewPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const canResetWorkerPassword = user.role === "worker" && role === "worker";
 
   async function save() {
     setErr("");
     setBusy(true);
     try {
+      if (newPass.trim() && (newPass.trim().length < 8 || newPass.trim().length > 128)) {
+        throw new Error("كلمة السر يجب أن تكون بين 8 و128 حرفًا");
+      }
+      if (newPass.trim() && !canResetWorkerPassword) {
+        throw new Error("يمكن تغيير كلمة السر هنا لحساب عامل فقط؛ لا تغيّر كلمة سر حساب إداري من التطبيق");
+      }
       if (!DEMO_MODE) {
         const { error } = await supabase.rpc("admin_update_user", {
           p_user_id: user.id,
@@ -394,7 +432,7 @@ function EditUser({
         });
         if (error) throw new Error(error.message);
 
-        if (newPass.trim().length >= 4) {
+        if (newPass.trim().length >= 8) {
           const { error: pErr } = await supabase.rpc("reset_worker_password", {
             p_worker_id: user.id,
             p_password: newPass.trim(),
@@ -410,7 +448,10 @@ function EditUser({
   }
 
   return (
-    <Modal title={`✏️ تعديل ${user.full_name}`} onClose={onClose}>
+    <Modal
+      title={<span className="icon-label"><AppIcon name="pencil" size={18} /><span>تعديل {user.full_name}</span></span>}
+      onClose={onClose}
+    >
       {err && <div className="alert error">{err}</div>}
 
       <label className="field">
@@ -440,10 +481,10 @@ function EditUser({
             value={role}
             onChange={(e) => setRole(e.target.value as any)}
           >
-            <option value="worker">👷 عامل</option>
-            <option value="owner">👑 مالك</option>
-            <option value="manager">🧑‍💼 مدير</option>
-            <option value="developer">🛠️ مطوّر</option>
+            <option value="worker">عامل</option>
+            <option value="owner">مالك</option>
+            <option value="manager">مدير</option>
+            <option value="developer">مطوّر</option>
           </select>
         </label>
 
@@ -454,10 +495,10 @@ function EditUser({
             value={status}
             onChange={(e) => setStatus(e.target.value as any)}
           >
-            <option value="active">✅ شغّال</option>
-            <option value="pending">⏳ مستني تفعيل</option>
-            <option value="suspended">⏸ موقوف</option>
-            <option value="rejected">🚫 مرفوض</option>
+            <option value="active">شغّال</option>
+            <option value="pending">مستني تفعيل</option>
+            <option value="suspended">موقوف</option>
+            <option value="rejected">مرفوض</option>
           </select>
         </label>
       </div>
@@ -486,15 +527,21 @@ function EditUser({
         </label>
       </div>
 
-      <label className="field">
-        <span>🔑 كلمة سر جديدة (سيبه فاضي لو مش عايز تغيّر)</span>
-        <input
-          className="input"
-          value={newPass}
-          onChange={(e) => setNewPass(e.target.value)}
-          placeholder="4 حروف على الأقل"
-        />
-      </label>
+      {canResetWorkerPassword && (
+        <label className="field">
+          <span className="icon-label"><AppIcon name="lockKeyhole" size={16} /><span>كلمة سر عامل جديدة (اختياري؛ 8 أحرف على الأقل)</span></span>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            value={newPass}
+            onChange={(e) => setNewPass(e.target.value)}
+            placeholder="8 أحرف على الأقل"
+          />
+        </label>
+      )}
 
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? "جاري الحفظ..." : "حفظ"}
