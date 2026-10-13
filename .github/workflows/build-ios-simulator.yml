@@ -1,0 +1,79 @@
+name: Build AquaDior iOS Simulator
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios:
+    name: Compile Capacitor iOS app (unsigned simulator build)
+    runs-on: macos-latest
+    env:
+      # Push does not need location; keep OneSignal location collection disabled.
+      ONESIGNAL_DISABLE_LOCATION: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build real web app
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_ONESIGNAL_APP_ID: ${{ vars.VITE_ONESIGNAL_APP_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${VITE_SUPABASE_ANON_KEY:-}" ]]; then
+            echo "::error::Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as GitHub Actions repository variables."
+            exit 1
+          fi
+          export VITE_DEMO_MODE=0
+          if [[ -z "${VITE_ONESIGNAL_APP_ID:-}" ]]; then
+            echo "::warning::VITE_ONESIGNAL_APP_ID is unset; this build can verify compilation but push stays disabled."
+          fi
+          npm run build
+          test -s dist/index.html
+
+      - name: Add Capacitor iOS platform
+        run: |
+          npm i --no-save @capacitor/cli@^7 @capacitor/assets@^3
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Compile unsigned iOS Simulator app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios-derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          APP_PATH="ios-derived-data/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP_PATH"
+          mkdir -p ios-artifact
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ios-artifact/AquaDior-iOS-Simulator.zip
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: AquaDior-iOS-Simulator-unsigned
+          path: ios-artifact/AquaDior-iOS-Simulator.zip
+          retention-days: 7

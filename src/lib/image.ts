@@ -12,8 +12,13 @@ export async function compressImage(
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("تعذر تجهيز الصورة على هذا الجهاز");
+  }
   ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(

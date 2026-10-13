@@ -1,30 +1,27 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
-import type { Profile, Site, Project } from "../../lib/types";
+import { fmtDateOnly } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
+import type { Profile } from "../../lib/types";
 import { Modal } from "../../components/Modal";
+import { useDialog } from "../../components/DialogProvider";
+import AppIcon from "../../components/AppIcon";
 
 export default function Registrations() {
+  const { prompt } = useDialog();
   const [rows, setRows] = useState<Profile[]>([]);
-  const [sites, setSites] = useState<Site[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [msg, setMsg] = useState("");
   const [approving, setApproving] = useState<Profile | null>(null);
   const [viewing, setViewing] = useState<Profile | null>(null);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
 
   async function load() {
-    const [{ data }, { data: s }, { data: p }] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-      supabase.from("sites").select("*").eq("is_active", true).order("name"),
-      supabase.from("projects").select("*").eq("status", "active").order("name"),
-    ]);
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
     setRows((data ?? []) as Profile[]);
-    setSites((s ?? []) as Site[]);
-    setProjects((p ?? []) as Project[]);
   }
 
   useEffect(() => {
@@ -59,19 +56,29 @@ export default function Registrations() {
   }
 
   async function reject(p: Profile) {
-    const reason = prompt("سبب الرفض (اختياري):") ?? null;
+    const reason = await prompt({
+      title: `رفض طلب ${p.full_name}؟`,
+      message: "سيتم رفض الطلب وإيقاف الحساب. يمكنك كتابة سبب اختياري يظهر في سجل الطلب.",
+      inputLabel: "سبب الرفض (اختياري)",
+      placeholder: "اكتب السبب أو اتركه فارغًا",
+      confirmText: "رفض الطلب",
+      cancelText: "العودة للطلب",
+      maxLength: 500,
+      tone: "danger",
+    });
+    if (reason === null) return;
     const { error } = await supabase.rpc("reject_worker", {
       p_worker_id: p.id,
-      p_reason: reason,
+      p_reason: reason.trim() || null,
     });
-    if (error) return setMsg("خطأ: " + error.message);
-    setMsg("تم الرفض ✅");
+    if (error) return setMsg("خطأ: " + arabicError(error, "تعذر رفض الطلب."));
+    setMsg("تم الرفض");
     await load();
   }
 
   return (
     <>
-      <div className="flex-between mb">
+      <div className="flex-between mb wrap">
         <h2>طلبات التسجيل الجديدة</h2>
         <span className="badge amber">{rows.length} طلب</span>
       </div>
@@ -82,7 +89,7 @@ export default function Registrations() {
         <div className="card-title">
           <span>اللي سجّلوا بياناتهم ومستنيين موافقتك</span>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap" role="region" aria-label="جدول طلبات التسجيل" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -106,10 +113,11 @@ export default function Registrations() {
                   <td className="num" dir="ltr">
                     {p.username ?? "—"}
                   </td>
-                  <td className="num small">{p.created_at?.slice(0, 10)}</td>
+                  <td className="num small">{fmtDateOnly(p.created_at)}</td>
                   <td>
                     <button className="btn btn-sm" onClick={() => openCard(p)}>
-                      🪪 شوف
+                      <AppIcon name="idCard" size={16} />
+                      شوف
                     </button>
                   </td>
                   <td>
@@ -117,11 +125,19 @@ export default function Registrations() {
                       <button
                         className="btn btn-sm btn-success"
                         onClick={() => setApproving(p)}
+                        disabled={!DEMO_MODE && !p.id_card_url}
+                        title={!DEMO_MODE && !p.id_card_url ? "لا يمكن التفعيل قبل رفع صورة البطاقة" : undefined}
                       >
-                        ✓ فعّل
+                        <AppIcon name="circleCheck" size={16} />
+                        فعّل
                       </button>
-                      <button className="btn btn-sm btn-danger" onClick={() => reject(p)}>
-                        ✕
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => void reject(p)}
+                        aria-label={`رفض طلب ${p.full_name}`}
+                        title="رفض الطلب"
+                      >
+                        <AppIcon name="circleX" size={17} />
                       </button>
                     </div>
                   </td>
@@ -130,7 +146,10 @@ export default function Registrations() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="center muted">
-                    مفيش طلبات جديدة 🎉
+                    <span className="empty-state-inline">
+                      <AppIcon name="inbox" size={20} />
+                      <span>مفيش طلبات جديدة</span>
+                    </span>
                   </td>
                 </tr>
               )}
@@ -143,7 +162,7 @@ export default function Registrations() {
         <div className="card-title">إزاي بيشتغل؟</div>
         <p className="small muted">
           العامل بيسجّل بنفسه (موبايل + اسم زي البطاقة + صورة البطاقة).
-          حسابك بيتفتح أول ما تضغط "فعّل" وتحدد اليومية والمواقع.
+          حسابه بيتفتح أول ما تضغط "فعّل" وتحدد اليومية. العامل يختار المشروع أو المشاريع بنفسه عند تسجيل الحضور.
           لو رفضت، العامل بيوصلو إشعار بالسبب.
         </p>
       </div>
@@ -182,12 +201,10 @@ export default function Registrations() {
       {approving && (
         <ApproveModal
           worker={approving}
-          sites={sites}
-          projects={projects}
           onClose={() => setApproving(null)}
           onDone={async () => {
             setApproving(null);
-            setMsg("تم تفعيل الحساب ✅");
+            setMsg("تم تفعيل الحساب");
             await load();
           }}
         />
@@ -198,20 +215,14 @@ export default function Registrations() {
 
 function ApproveModal({
   worker,
-  sites,
-  projects,
   onClose,
   onDone,
 }: {
   worker: Profile;
-  sites: Site[];
-  projects: Project[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const [wage, setWage] = useState("");
-  const [siteIds, setSiteIds] = useState<string[]>([]);
-  const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -222,17 +233,20 @@ function ApproveModal({
     const { error } = await supabase.rpc("approve_worker", {
       p_worker_id: worker.id,
       p_daily_wage: Number(wage),
-      p_site_ids: siteIds.length ? siteIds : null,
-      p_project_id: projectId || null,
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ بيانات العامل."));
     onDone();
   }
 
   return (
-    <Modal title={`تفعيل ${worker.full_name}`} onClose={onClose}>
+    <Modal centered title={`تفعيل ${worker.full_name}`} onClose={onClose}>
       {err && <div className="alert error">{err}</div>}
+      {!DEMO_MODE && !worker.id_card_url && (
+        <div className="alert error" role="alert">
+          لا يمكن التفعيل قبل رفع صورة البطاقة والتحقق منها.
+        </div>
+      )}
 
       <label className="field">
         <span>اليومية (جنيه)</span>
@@ -246,47 +260,10 @@ function ApproveModal({
         />
       </label>
 
-      <label className="field">
-        <span>المشروع</span>
-        <select
-          className="input"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-        >
-          <option value="">— من غير مشروع —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="small muted">بعد التفعيل، العامل يختار بنفسه من المشاريع المفتوحة عند تسجيل الحضور.</p>
 
-      <div className="field">
-        <span>المواقع اللي هيشتغل فيها</span>
-        <div className="flex" style={{ flexWrap: "wrap", gap: 8 }}>
-          {sites.map((s) => {
-            const on = siteIds.includes(s.id);
-            return (
-              <button
-                key={s.id}
-                type="button"
-                className={`btn btn-sm ${on ? "btn-primary" : ""}`}
-                onClick={() =>
-                  setSiteIds((p) =>
-                    on ? p.filter((x) => x !== s.id) : [...p, s.id]
-                  )
-                }
-              >
-                {on ? "✓ " : ""}
-                {s.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
-      <button className="btn btn-primary btn-block" onClick={approve} disabled={busy}>
+      <button className="btn btn-primary btn-block" onClick={approve} disabled={busy || (!DEMO_MODE && !worker.id_card_url)}>
         {busy ? "جاري التفعيل..." : "فعّل الحساب"}
       </button>
     </Modal>

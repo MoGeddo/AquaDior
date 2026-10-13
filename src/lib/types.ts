@@ -9,7 +9,6 @@ export interface Profile {
   username: string | null;
   role: Role;
   daily_wage: number;
-  default_site_id: string | null;
   is_active: boolean;
   // حقول التسجيل الأولى
   status: ProfileStatus;
@@ -27,17 +26,10 @@ export interface Project {
   status: "active" | "closed";
   start_date: string | null;
   end_date: string | null;
-  created_at: string;
-}
-
-export interface Site {
-  id: string;
-  project_id: string;
-  name: string;
   address: string | null;
   lat: number | null;
   lng: number | null;
-  is_active: boolean;
+  created_at: string;
 }
 
 export interface Attendance {
@@ -45,6 +37,7 @@ export interface Attendance {
   worker_id: string;
   project_id: string | null;
   work_date: string;
+  daily_wage_snapshot: number | null;
   source: "worker" | "admin";
   lat: number | null;
   lng: number | null;
@@ -53,10 +46,10 @@ export interface Attendance {
   created_at: string;
 }
 
-export interface AttendanceSite {
-  id: string;
+export interface AttendanceProject {
   attendance_id: string;
-  site_id: string;
+  project_id: string;
+  project?: Pick<Project, "id" | "name" | "status">;
 }
 
 export type WithdrawalStatus = "pending" | "approved" | "rejected";
@@ -82,6 +75,9 @@ export interface Deduction {
   reason: string;
   created_by: string | null;
   created_at: string;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
 }
 
 export interface Settlement {
@@ -98,6 +94,7 @@ export interface Settlement {
   worker_ack_at: string | null;
   confirmed_by: string | null;
   paid_at: string | null;
+  client_request_id?: string | null;
   created_at: string;
 }
 
@@ -126,20 +123,20 @@ export interface WorkerBalance {
   deducted: number;
   balance: number;
   available: number;
+  settled_paid: number;
 }
 
 export interface AppSettings {
-  auto_approve_limit: number;
   absence_deduction: number;
   day_lock_time: string;
+  /** Legacy settings compatibility only; attendance GPS is permanently disabled. */
   gps_enabled: boolean;
   currency: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  auto_approve_limit: 500,
   absence_deduction: 50,
   day_lock_time: "00:00",
-  gps_enabled: true,
+  gps_enabled: false,
   currency: "ج.م",
 };

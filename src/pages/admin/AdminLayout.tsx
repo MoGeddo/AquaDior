@@ -3,33 +3,46 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../store/auth";
 import { supabase } from "../../lib/supabase";
 import { AquaDiorShield } from "../../components/AquaDiorLogo";
+import AppIcon, { type AppIconName } from "../../components/AppIcon";
 
-const LINKS = [
-  { to: "/admin", label: "📊 الداشبورد", end: true },
-  { to: "/admin/registrations", label: "🔔 طلبات التسجيل" },
-  { to: "/admin/attendance", label: "📅 الحضور" },
-  { to: "/admin/workers", label: "👷 العمال" },
-  { to: "/admin/sites", label: "📍 المواقع" },
-  { to: "/admin/projects", label: "🏗️ المشاريع" },
-  { to: "/admin/withdrawals", label: "💵 الفلوس" },
-  { to: "/admin/settlements", label: "🧾 التسويات" },
-  { to: "/admin/audit", label: "🛡️ سجل التعديلات" },
-  { to: "/admin/settings", label: "⚙️ الإعدادات" },
-  { to: "/admin/developer", label: "🛠️ المطوّر" },
+type AdminLink = {
+  to: string;
+  label: string;
+  icon: AppIconName;
+  end?: boolean;
+};
+
+const LINKS: AdminLink[] = [
+  { to: "/admin", label: "الداشبورد", icon: "layoutDashboard", end: true },
+  { to: "/admin/registrations", label: "طلبات التسجيل", icon: "userPlus" },
+  { to: "/admin/attendance", label: "الحضور", icon: "calendarCheck" },
+  { to: "/admin/workers", label: "العمال", icon: "hardHat" },
+  { to: "/admin/projects", label: "المشاريع/المواقع", icon: "building2" },
+  { to: "/admin/withdrawals", label: "الفلوس", icon: "wallet" },
+  { to: "/admin/deductions", label: "الخصومات", icon: "fileMinus" },
+  { to: "/admin/settlements", label: "التسويات", icon: "receiptCheck" },
+  { to: "/admin/audit", label: "سجل التعديلات", icon: "shieldCheck" },
+  { to: "/admin/settings", label: "الإعدادات", icon: "settings" },
+  { to: "/admin/developer", label: "المطوّر", icon: "wrench" },
 ];
 
 export default function AdminLayout() {
   const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const [pending, setPending] = useState(0);
+  const [pendingWithdrawals, setPendingWithdrawals] = useState(0);
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     if (!profile) return;
     const load = async () => {
-      const [{ count: p }, { count: n }] = await Promise.all([
+      const [{ count: p }, { count: w }, { count: n }] = await Promise.all([
         supabase
           .from("profiles")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
+        supabase
+          .from("withdrawals")
           .select("*", { count: "exact", head: true })
           .eq("status", "pending"),
         supabase
@@ -39,6 +52,7 @@ export default function AdminLayout() {
           .eq("is_read", false),
       ]);
       setPending(p ?? 0);
+      setPendingWithdrawals(w ?? 0);
       setUnread(n ?? 0);
     };
     load();
@@ -58,16 +72,22 @@ export default function AdminLayout() {
         </div>
         <div className="flex" style={{ gap: 8 }}>
           {unread > 0 && (
-            <NavLink to="/admin/audit" className="badge red">
-              🔔 {unread}
+            <NavLink
+              to="/admin/audit"
+              className="badge red"
+              aria-label={`${unread} إشعارات غير مقروءة`}
+              title="الإشعارات غير المقروءة"
+            >
+              <AppIcon name="bell" size={15} />
+              <span>{unread}</span>
             </NavLink>
           )}
           <span className="role-chip">
             {profile?.role === "owner"
-              ? "👑 مالك"
+              ? "مالك"
               : profile?.role === "developer"
-              ? "🛠️ مطوّر"
-              : "🧑‍💼 مدير"}
+              ? "مطوّر"
+              : "مدير"}
           </span>
           <button
             className="btn btn-sm btn-ghost"
@@ -81,13 +101,19 @@ export default function AdminLayout() {
         </div>
       </div>
 
-      <nav className="admin-nav">
-        {LINKS.map((l) => (
+      <nav className="admin-nav" aria-label="التنقل الرئيسي">
+        {LINKS.filter((l) => l.to !== "/admin/developer" || profile?.role === "developer").map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end}>
-            {l.label}
+            <AppIcon name={l.icon} className="admin-nav-icon" size={18} />
+            <span>{l.label}</span>
             {l.to === "/admin/registrations" && pending > 0 && (
-              <span className="badge red" style={{ marginInlineStart: 6 }}>
+              <span className="badge red" style={{ marginInlineStart: 2 }} aria-label={`${pending} طلب تسجيل معلّق`}>
                 {pending}
+              </span>
+            )}
+            {l.to === "/admin/withdrawals" && pendingWithdrawals > 0 && (
+              <span className="badge red" style={{ marginInlineStart: 2 }} aria-label={`${pendingWithdrawals} طلب سحب معلّق`}>
+                {pendingWithdrawals}
               </span>
             )}
           </NavLink>

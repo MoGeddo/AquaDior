@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fmtDateOnly, fmtDateTime } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
+import { arabicTableLabel, localizeDateText } from "../../lib/presentation";
 import type { Notification } from "../../lib/types";
 import { useAuth } from "../../store/auth";
+import AppIcon from "../../components/AppIcon";
 
 const LABELS: Record<string, string> = {
   insert: "إضافة",
@@ -15,55 +19,97 @@ export default function AuditLog() {
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<"notif" | "audit">("notif");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
 
-  async function load() {
-    const [{ data: l }, { data: n }] = await Promise.all([
-      supabase
-        .from("audit_log")
-        .select("*")
-        .order("changed_at", { ascending: false })
-        .limit(300),
-      supabase
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100),
-    ]);
-    setLogs(l ?? []);
-    setNotifs((n ?? []) as Notification[]);
+  const load = useCallback(async () => {
+    if (!profile) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [{ data: l, error: logError }, { data: n, error: notificationError }] = await Promise.all([
+        supabase
+          .from("audit_log")
+          .select("*")
+          .order("changed_at", { ascending: false })
+          .limit(300),
+        supabase
+          .from("notifications")
+          .select("*")
+          .eq("user_id", profile.id)
+          .order("created_at", { ascending: false })
+          .limit(100),
+      ]);
+      if (logError || notificationError) {
+        throw logError ?? notificationError;
+      }
+      setLogs(l ?? []);
+      setNotifs((n ?? []) as Notification[]);
 
-    const ids = new Set<string>();
-    (l ?? []).forEach((x: any) => x.changed_by && ids.add(x.changed_by));
-    if (ids.size) {
-      const { data: p } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", [...ids]);
-      const m: Record<string, string> = {};
-      (p ?? []).forEach((x: any) => (m[x.id] = x.full_name));
-      setNames(m);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // علّم إشعاراتي كمقروءة
-    if (profile) {
-      supabase
-        .from("notifications")
-        .update({ is_read: true })
-        .eq("user_id", profile.id)
-        .eq("is_read", false)
-        .then(() => {});
+      const ids = new Set<string>();
+      (l ?? []).forEach((x: any) => x.changed_by && ids.add(x.changed_by));
+      if (ids.size) {
+        const { data: p, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", [...ids]);
+        if (profilesError) throw profilesError;
+        const m: Record<string, string> = {};
+        (p ?? []).forEach((x: any) => (m[x.id] = x.full_name));
+        setNames(m);
+      } else {
+        setNames({});
+      }
+    } catch (caught: any) {
+      setError(arabicError(caught, "تعذر تحميل سجل الإدارة."));
+    } finally {
+      setLoading(false);
     }
   }, [profile]);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 30000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  async function markRead(id: string) {
+    if (!profile) return;
+    setBusyId(id);
+    setError("");
+    const { error: updateError } = await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", id)
+      .eq("user_id", profile.id)
+      .eq("is_read", false);
+    if (updateError) setError(arabicError(updateError, "تعذر تحديث الإشعار."));
+    else setNotifs((current) => current.map((item) => item.id === id ? { ...item, is_read: true } : item));
+    setBusyId(null);
+  }
+
+  async function markAllRead() {
+    if (!profile) return;
+    setMarkingAll(true);
+    setError("");
+    const { error: updateError } = await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", profile.id)
+      .eq("is_read", false);
+    if (updateError) setError(arabicError(updateError, "تعذر تحديث الإشعارات."));
+    else setNotifs((current) => current.map((item) => ({ ...item, is_read: true })));
+    setMarkingAll(false);
+  }
 
   function describe(log: any): string {
     const t = log.table_name;
     const nm = names[log.changed_by] ?? "النظام";
     if (t === "attendance") {
       const d = (log.new_data ?? log.old_data)?.work_date ?? "";
-      return `${nm} — ${LABELS[log.action]} حضور بتاريخ ${d}`;
+      return `${nm} — ${LABELS[log.action]} حضور بتاريخ ${fmtDateOnly(d)}`;
     }
     if (t === "withdrawals") {
       const v = log.new_data ?? log.old_data;
@@ -81,47 +127,69 @@ export default function AuditLog() {
     }
     if (t === "sites") {
       const v = log.new_data ?? log.old_data;
-      return `${nm} — ${LABELS[log.action]} موقع ${v?.name}`;
+      return `${nm} — ${LABELS[log.action]} موقع قديم ${v?.name}`;
     }
     if (t === "projects") {
       const v = log.new_data ?? log.old_data;
       return `${nm} — ${LABELS[log.action]} مشروع ${v?.name}`;
     }
-    return `${nm} — ${LABELS[log.action]} في ${t}`;
+    return `${nm} — ${LABELS[log.action]} في ${arabicTableLabel(t)}`;
   }
 
   return (
     <>
-      <div className="flex mb">
+      {error && <div className="alert error" role="alert">{error}</div>}
+      <div className="flex wrap mb">
         <button
           className={`btn btn-sm ${tab === "notif" ? "btn-primary" : ""}`}
           onClick={() => setTab("notif")}
         >
-          🔔 الإشعارات
+          <AppIcon name="bell" size={18} />
+          الإشعارات
         </button>
         <button
           className={`btn btn-sm ${tab === "audit" ? "btn-primary" : ""}`}
           onClick={() => setTab("audit")}
         >
-          🛡️ سجل التعديلات الكامل
+          <AppIcon name="shieldCheck" size={18} />
+          سجل التعديلات الكامل
         </button>
       </div>
 
       {tab === "notif" && (
         <div className="card">
-          <div className="card-title">كل الإشعارات</div>
-          {notifs.length === 0 && <div className="empty">مفيش إشعارات</div>}
-          {notifs.map((n) => (
-            <div className="row" key={n.id}>
-              <div>
-                <div className="main">{n.title}</div>
-                <div className="meta">{n.body}</div>
-              </div>
-              <span className="small muted">
-                {n.created_at?.slice(0, 10)} {n.created_at?.slice(11, 16)}
-              </span>
+          <div className="card-title notification-toolbar">
+            <span className="icon-label">
+              <AppIcon name="bell" size={18} />
+              <span>إشعارات حساب الإدارة</span>
+            </span>
+            <div className="flex notification-toolbar-actions">
+              <button className="btn btn-sm" onClick={() => void load()} disabled={loading}>تحديث</button>
+              {notifs.some((item) => !item.is_read) && (
+                <button className="btn btn-sm btn-ghost" onClick={() => void markAllRead()} disabled={markingAll}>
+                  {markingAll ? "جاري التحديث…" : "قراءة الكل"}
+                </button>
+              )}
             </div>
-          ))}
+          </div>
+          {loading ? <div className="empty" role="status">جاري تحميل الإشعارات…</div> : notifs.length === 0 ? <div className="empty">مفيش إشعارات</div> : (
+            <div className="notification-list">
+              {notifs.map((n) => (
+                <article className={`notification-item${n.is_read ? "" : " is-unread"}`} key={n.id}>
+                  <div className="notification-icon" aria-hidden="true">
+                    <AppIcon name="bell" size={19} />
+                  </div>
+                  <div className="notification-content">
+                    <div className="notification-title">{localizeDateText(n.title)}</div>
+                    {n.body && <div className="notification-body">{localizeDateText(n.body)}</div>}
+                    <time className="small muted" dateTime={n.created_at}>{fmtDateTime(n.created_at)}</time>
+                  </div>
+                  {!n.is_read && <button className="btn btn-sm btn-ghost notification-read" aria-label={`تعليم «${localizeDateText(n.title)}» كمقروء`} onClick={() => void markRead(n.id)} disabled={busyId === n.id}>{busyId === n.id ? "…" : <AppIcon name="circleCheck" size={18} />}</button>}
+                </article>
+              ))}
+            </div>
+          )}
+          {notifs.length === 100 && <p className="small muted center mt">يعرض آخر 100 إشعار.</p>}
         </div>
       )}
 
@@ -130,7 +198,7 @@ export default function AuditLog() {
           <div className="card-title">
             <span>كل تعديل اتعمل في النظام — مين وإمتى وقد إيه</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap" role="region" aria-label="سجل التعديلات" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -143,7 +211,7 @@ export default function AuditLog() {
                 {logs.map((l) => (
                   <tr key={l.id}>
                     <td className="num small">
-                      {l.changed_at?.slice(0, 10)} {l.changed_at?.slice(11, 16)}
+                      {fmtDateTime(l.changed_at)}
                     </td>
                     <td>
                       <span

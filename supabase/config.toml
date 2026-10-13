@@ -1,0 +1,9 @@
+# Authentication is checked inside notify-telegram for both admin JWTs and the
+# dedicated TELEGRAM_CRON_SECRET header used by scheduled requests.
+[functions.notify-telegram]
+verify_jwt = false
+
+# This endpoint is called only by the scheduled server-side job, authenticated
+# with x-push-secret. It uses the service role exclusively inside the function.
+[functions.push-dispatch]
+verify_jwt = false

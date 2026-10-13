@@ -1,18 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateOnly, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Withdrawal, Profile } from "../../lib/types";
+import { useDialog } from "../../components/DialogProvider";
+import AppIcon from "../../components/AppIcon";
+import SearchField from "../../components/SearchField";
 
 type Tab = "pending" | "all" | "approved" | "rejected";
+const isoNow = () => new Date().toISOString();
 
 export default function Withdrawals() {
+  const { confirm } = useDialog();
   const [rows, setRows] = useState<(Withdrawal & { worker?: Profile })[]>([]);
   const [tab, setTab] = useState<Tab>("pending");
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     let query = supabase
       .from("withdrawals")
       .select("*, worker:profiles!withdrawals_worker_id_fkey(full_name, phone)")
@@ -25,11 +31,11 @@ export default function Withdrawals() {
     setRows(
       (data ?? []).map((r: any) => ({ ...r, worker: r.worker }))
     );
-  }
+  }, [tab]);
 
   useEffect(() => {
-    load();
-  }, [tab]);
+    void load();
+  }, [load]);
 
   const filtered = rows.filter(
     (r) =>
@@ -38,29 +44,56 @@ export default function Withdrawals() {
       String(r.amount).includes(q)
   );
 
-  async function decide(id: string, status: "approved" | "rejected") {
+  async function decide(row: Withdrawal & { worker?: Profile }, status: "approved" | "rejected") {
+    if (busy) return;
+    const workerName = row.worker?.full_name ?? "العامل";
+    const approved = status === "approved";
+    const accepted = await confirm({
+      title: approved ? "اعتماد طلب السحب؟" : "رفض طلب السحب؟",
+      message: approved
+        ? `سيُعتمد صرف ${money(row.amount)} للعامل «${workerName}». تأكد من مراجعة الطلب قبل تسجيل القرار.`
+        : `سيُرفض طلب ${money(row.amount)} المقدم من «${workerName}». لن يتم تسجيل صرف لهذا الطلب.`,
+      confirmText: approved ? "اعتماد الطلب" : "رفض الطلب",
+      cancelText: "مراجعة الطلب",
+      tone: approved ? "primary" : "danger",
+    });
+    if (!accepted) return;
     setBusy(true);
-    const me = (await supabase.auth.getUser()).data.user?.id;
-    const { error } = await supabase
-      .from("withdrawals")
-      .update({
-        status,
-        decided_by: me,
-        decided_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-    setBusy(false);
-    if (error) return setMsg("خطأ: " + error.message);
-    setMsg(status === "approved" ? "تمت الموافقة ✅" : "تم الرفض ✅");
-    await load();
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth.user) throw new Error("انتهت الجلسة؛ سجّل الدخول مرة أخرى");
+      const { data, error } = await supabase
+        .from("withdrawals")
+        .update({
+          status,
+          decided_by: auth.user.id,
+          decided_at: isoNow(),
+        })
+        .eq("id", row.id)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setMsg("تم التعامل مع هذا الطلب من جلسة أخرى؛ أُعيد تحميل القائمة.");
+        await load();
+        return;
+      }
+      setMsg(status === "approved" ? "تمت الموافقة" : "تم الرفض");
+      await load();
+    } catch (error: any) {
+      setMsg("خطأ: " + arabicError(error, "تعذر تحديث الطلب."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const pendingCount = rows.filter((r) => r.status === "pending").length;
 
   return (
     <>
-      <div className="flex-between mb" style={{ flexWrap: "wrap" }}>
-        <div className="flex">
+      <div className="flex-between mb wrap">
+        <div className="flex wrap">
           {(
             [
               ["pending", `مستني موافقة ${pendingCount ? `(${pendingCount})` : ""}`],
@@ -78,19 +111,19 @@ export default function Withdrawals() {
             </button>
           ))}
         </div>
-        <input
-          className="input"
-          style={{ maxWidth: 240 }}
-          placeholder="🔍 بحث"
+        <SearchField
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={setQ}
+          maxWidth={240}
+          ariaLabel="البحث في طلبات السحب"
+          placeholder="ابحث بالاسم أو الموبايل أو المبلغ"
         />
       </div>
 
       {msg && <div className="alert success">{msg}</div>}
 
       <div className="card">
-        <div className="table-wrap">
+        <div className="table-wrap" role="region" aria-label="جدول طلبات السحب" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -111,7 +144,7 @@ export default function Withdrawals() {
                       {r.worker?.phone}
                     </div>
                   </td>
-                  <td className="num">{r.created_at?.slice(0, 10)}</td>
+                  <td className="num">{fmtDateOnly(r.created_at)}</td>
                   <td className="num">
                     <b>{money(r.amount)}</b>
                   </td>
@@ -131,16 +164,20 @@ export default function Withdrawals() {
                         <button
                           className="btn btn-sm btn-success"
                           disabled={busy}
-                          onClick={() => decide(r.id, "approved")}
+                          onClick={() => void decide(r, "approved")}
+                          aria-label={`اعتماد سحب ${money(r.amount)} للعامل ${r.worker?.full_name ?? ""}`}
                         >
-                          ✓
+                          <AppIcon name="circleCheck" size={16} />
+                          موافقة
                         </button>
                         <button
                           className="btn btn-sm btn-danger"
                           disabled={busy}
-                          onClick={() => decide(r.id, "rejected")}
+                          onClick={() => void decide(r, "rejected")}
+                          aria-label={`رفض سحب ${money(r.amount)} للعامل ${r.worker?.full_name ?? ""}`}
                         >
-                          ✕
+                          <AppIcon name="circleX" size={16} />
+                          رفض
                         </button>
                       </div>
                     )}

@@ -148,13 +148,13 @@ export default function AquaDiorLogo({
             style={{
               fontSize: size > 60 ? 12 : 10,
               fontWeight: 700,
-              letterSpacing: "3px",
-              textTransform: "uppercase",
+              letterSpacing: "0",
+              textTransform: "none",
               color: isDark ? "#D4AF37" : "#B88A28",
               marginTop: 4,
             }}
           >
-            AQUA DIOR
+            للمقاولات
           </div>
         </div>
       )}
@@ -186,7 +186,7 @@ export const AquaDiorHeaderBanner: React.FC = () => (
         direction: "ltr",
       }}
     >
-      Aqua Dior Contracting
+      نظام إدارة العمال
     </div>
 
     <div

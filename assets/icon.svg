@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aqua Dior">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17272c"/>
+      <stop offset="0.55" stop-color="#0d171c"/>
+      <stop offset="1" stop-color="#10161b"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0bd"/>
+      <stop offset="0.32" stop-color="#e9ca7d"/>
+      <stop offset="0.68" stop-color="#c49a3e"/>
+      <stop offset="1" stop-color="#f5dfa0"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9d18f"/>
+      <stop offset="0.48" stop-color="#78c7c4"/>
+      <stop offset="1" stop-color="#27838b"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="42%" r="55%">
+      <stop offset="0" stop-color="#4c9996" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#4c9996" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#night)"/>
+  <circle cx="256" cy="245" r="220" fill="url(#halo)"/>
+  <circle cx="256" cy="256" r="218" fill="none" stroke="#d7b869" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M256 55c58 0 119 13 153 42 7 102 4 184-19 246-26 71-81 112-134 139-53-27-108-68-134-139-23-62-26-144-19-246 34-29 95-42 153-42Z"
+        fill="#111b20" fill-opacity=".72" stroke="url(#gold)" stroke-width="13" stroke-linejoin="round" filter="url(#soft-glow)"/>
+  <path d="M256 81c50 0 100 11 127 32 5 88 3 158-17 212-21 58-65 93-110 118-45-25-89-60-110-118-20-54-22-124-17-212 27-21 77-32 127-32Z"
+        fill="none" stroke="#f4e3b5" stroke-opacity=".52" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M256 143c7 8 72 88 72 147 0 48-30 79-72 79s-72-31-72-79c0-59 65-139 72-147Z"
+        fill="none" stroke="url(#gold)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M256 193c27 39 42 76 31 109-9 28-31 39-50 26-21-15-20-42-7-64 12-21 24-42 26-71Z"
+        fill="url(#water)" opacity=".96"/>
+  <path d="M252 222c-11 26-12 51-4 70 5 12 14 17 22 11 9-8 8-25-2-48-6-14-12-24-16-33Z"
+        fill="#fff9e8" opacity=".78"/>
+  <circle cx="340" cy="157" r="3" fill="#f4dfa0" opacity=".88"/>
+  <circle cx="355" cy="182" r="1.7" fill="#f4dfa0" opacity=".65"/>
+</svg>

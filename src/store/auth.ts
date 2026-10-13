@@ -1,13 +1,8 @@
 import { create } from "zustand";
-import { supabase, phoneToEmail } from "../lib/supabase";
+import { supabase, phoneToEmail, SUPABASE_CONFIGURED, DEMO_MODE } from "../lib/supabase";
+import { arabicError } from "../lib/errors";
 import type { Profile } from "../lib/types";
 
-/**
- * تحويل المُعرّف لإيميل:
- * - لو فيه @ → إيميل مباشر (المالك/المدير)
- * - لو أرقام بس → رقم موبايل (توافق مع الإصدار القديم)
- * - غير كده → يوزر نيم (العمال)
- */
 function toEmail(identifier: string): string {
   const id = identifier.trim();
   if (id.includes("@")) return id.toLowerCase();
@@ -20,118 +15,171 @@ interface AuthState {
   loading: boolean;
   ready: boolean;
   init: () => Promise<void>;
-  /** دخول عام: إيميل للمديرين، يوزر نيم للعمال */
   signIn: (identifier: string, password: string) => Promise<{ error?: string }>;
   signUp: (
     phone: string,
     fullName: string,
     username: string,
     password: string
-  ) => Promise<{ error?: string }>;
+  ) => Promise<{ error?: string; accountCreated?: boolean; accountExists?: boolean }>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
+
+let initialization: Promise<void> | null = null;
 
 export const useAuth = create<AuthState>((set, get) => ({
   profile: null,
   loading: false,
   ready: false,
 
-  init: async () => {
-    set({ loading: true });
-    const { data } = await supabase.auth.getSession();
-    if (data.session?.user) await get().refresh();
-    supabase.auth.onAuthStateChange(async (_event: string, session: any) => {
-      if (session?.user) await get().refresh();
-      else set({ profile: null });
-    });
-    set({ loading: false, ready: true });
+  init: () => {
+    if (initialization) return initialization;
+    initialization = (async () => {
+      if (!DEMO_MODE && !SUPABASE_CONFIGURED) {
+        set({ loading: false, ready: true, profile: null });
+        return;
+      }
+      set({ loading: true });
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (data.session?.user) await get().refresh();
+
+        // لا تنفّذ استدعاءات Supabase داخل callback المتزامن لتفادي قفل Auth.
+        supabase.auth.onAuthStateChange((_event: string, session: any) => {
+          if (!session?.user) {
+            set({ profile: null, ready: true });
+            return;
+          }
+          void Promise.resolve().then(() => get().refresh());
+        });
+      } catch (error) {
+        console.error("Auth initialization failed", error);
+        set({ profile: null });
+      } finally {
+        set({ loading: false, ready: true });
+      }
+    })();
+    return initialization;
   },
 
   refresh: async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return set({ profile: null });
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", auth.user.id)
-      .single();
-    set({ profile: (data as Profile) ?? null });
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError || !auth.user) {
+        set({ profile: null });
+        return;
+      }
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", auth.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      set({ profile: (data as Profile | null) ?? null });
+    } catch (error) {
+      console.error("Profile refresh failed", error);
+      set({ profile: null });
+    }
   },
 
   signIn: async (identifier, password) => {
+    if (!identifier.trim()) return { error: "اكتب اسم المستخدم" };
+    if (!password) return { error: "اكتب كلمة السر" };
     set({ loading: true });
-    const email = toEmail(identifier);
-    console.log("🔐 محاولة دخول بالإيميل:", email);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      set({ loading: false });
-      console.error("❌ خطأ الدخول من Supabase:", error);
-      // ترجمة الأخطاء الشائعة لرسائل مفهومة
-      const m = (error.message ?? "").toLowerCase();
-      let msg = error.message;
-      if (m.includes("invalid login")) {
-        msg = "اسم المستخدم أو كلمة السر غلط";
-      } else if (m.includes("email not confirmed")) {
-        msg = "الحساب لسه متأكدش — اقفل Confirm email في Supabase";
-      } else if (m.includes("rate limit") || m.includes("too many")) {
-        msg = "جرّبت كتير مرات — استنى دقيقة وجرّب تاني";
-      } else if (m.includes("invalid api key") || m.includes("apikey")) {
-        msg = "مفتاح الـ API غلط أو معطّل — محتاج الـ publishable key";
-      } else if (m.includes("failed to fetch") || m.includes("network")) {
-        msg = "مش عارف أوصل للداتابيز — راجع الإنترنت";
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: toEmail(identifier),
+        password,
+      });
+      if (error) {
+        const message = (error.message ?? "").toLowerCase();
+        if (message.includes("invalid login")) {
+          return { error: "اسم المستخدم أو كلمة السر غير صحيحة" };
+        }
+        if (message.includes("email not confirmed")) {
+          return { error: "الحساب لم يُفعّل بعد. لا يلزمك بريد إلكتروني؛ اطلب من الإدارة تفعيل الحساب ثم سجّل الدخول باسم المستخدم وكلمة السر." };
+        }
+        if (message.includes("rate limit") || message.includes("too many")) {
+          return { error: "محاولات كثيرة — انتظر قليلاً ثم حاول مرة أخرى" };
+        }
+        if (message.includes("failed to fetch") || message.includes("network")) {
+          return { error: "تعذر الاتصال بالخادم؛ تحقق من الإنترنت" };
+        }
+        return { error: "تعذر تسجيل الدخول. راجع إعدادات الحساب أو اتصل بالإدارة." };
       }
-      return { error: `❌ ${msg}\n\n(التفاصيل التقنية: ${error.message})` };
+      await get().refresh();
+      return {};
+    } catch {
+      return { error: "تعذر الاتصال بالخادم؛ حاول مرة أخرى" };
+    } finally {
+      set({ loading: false });
     }
-    await get().refresh();
-    set({ loading: false });
-    return {};
   },
 
   signUp: async (phone, fullName, username, password) => {
+    if (!DEMO_MODE && !SUPABASE_CONFIGURED) {
+      return { error: "التطبيق غير مربوط بقاعدة بيانات؛ تواصل مع الإدارة" };
+    }
     set({ loading: true });
-    const clean = phone.replace(/\D/g, "");
-    if (clean.length < 10) {
-      set({ loading: false });
-      return { error: "اكتب رقم موبايل صحيح" };
-    }
+    try {
+      const clean = phone.replace(/\D/g, "");
+      const cleanUsername = username.trim().toLowerCase();
+      if (clean.length < 10 || clean.length > 15) {
+        return { error: "اكتب رقم موبايل صحيح" };
+      }
+      if (fullName.trim().length < 3 || fullName.trim().length > 120) {
+        return { error: "الاسم يجب أن يكون بين 3 و120 حرفًا" };
+      }
+      if (!/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) {
+        return { error: "اسم المستخدم من 3 إلى 32 حرفاً/رقماً، بدون مسافات أو رموز أخرى" };
+      }
+      if (password.length < 8 || password.length > 128) {
+        return { error: "كلمة السر يجب أن تكون بين 8 و128 حرفًا" };
+      }
 
-    const { data, error } = await supabase.auth.signUp({
-      email: toEmail(username),
-      password,
-      options: {
-        data: {
-          full_name: fullName.trim(),
-          phone: clean,
-          username: username.trim().toLowerCase(),
-          role: "worker",
+      const { data, error } = await supabase.auth.signUp({
+        email: toEmail(cleanUsername),
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            phone: clean,
+            username: cleanUsername,
+            role: "worker",
+          },
         },
-      },
-    });
-
-    if (error) {
+      });
+      if (error) return { error: arabicError(error, "تعذر إنشاء الحساب؛ حاول مرة أخرى أو تواصل مع الإدارة.") };
+      if (!data.session) {
+        // Supabase intentionally returns no identity details for an existing
+        // email when email confirmation is enabled. Try signing in so a worker
+        // can safely resume a prior registration without creating a duplicate.
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          return { accountExists: true };
+        }
+        return {
+          accountCreated: Boolean(data.user),
+          error: data.user
+            ? "تم إنشاء الحساب، لكن إعدادات الخادم منعت بدء جلسة الدخول. لا تدخل بريدًا إلكترونيًا؛ يلزم من الإدارة إيقاف تأكيد البريد وتفعيل الحساب مرة واحدة، ثم تسجّل الدخول باسم المستخدم وكلمة السر."
+            : "الخادم لم يُكمل إنشاء الحساب. لا تحتاج إلى بريد إلكتروني؛ أعد المحاولة، وإذا استمر الرفض راجع الإدارة.",
+        };
+      }
+      await get().refresh();
+      return {};
+    } catch {
+      return { error: "تعذر إنشاء الحساب؛ تحقق من الاتصال وحاول مرة أخرى" };
+    } finally {
       set({ loading: false });
-      return { error: error.message };
     }
-
-    if (!data.session) {
-      set({ loading: false });
-      return {
-        error:
-          "تم إنشاء الحساب. لو ما دخلتش تلقائيًا، اتأكد إن Confirm email مقفول في Supabase.",
-      };
-    }
-
-    await get().refresh();
-    set({ loading: false });
-    return {};
   },
 
   signOut: async () => {
-    await supabase.auth.signOut();
-    set({ profile: null });
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      set({ profile: null });
+    }
   },
 }));

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useOutletContext, useNavigate } from "react-router-dom";
 import { useAuth } from "../../store/auth";
 import MoneyModal from "../../components/MoneyModal";
-import type { WorkerBalance } from "../../lib/types";
+import AppIcon from "../../components/AppIcon";
+import type { WorkerOutletContext } from "./WorkerLayout";
 
 /**
  * الشاشة دي بقت مودال سريع جوه الشاشة الرئيسية،
@@ -10,7 +11,7 @@ import type { WorkerBalance } from "../../lib/types";
  */
 export default function TakeMoney() {
   const { profile } = useAuth();
-  const ctx = useOutletContext<{ bal: WorkerBalance | null; reload: () => void }>();
+  const ctx = useOutletContext<WorkerOutletContext>();
   const nav = useNavigate();
   const [open, setOpen] = useState(true);
 
@@ -21,11 +22,14 @@ export default function TakeMoney() {
           workerId={profile!.id}
           balance={ctx?.bal ?? null}
           onClose={() => nav("/worker")}
-          onDone={() => ctx?.reload?.()}
+          onDone={(queued) => {
+            if (!queued) ctx?.reload?.();
+          }}
         />
       ) : (
         <button className="btn btn-primary btn-block" onClick={() => setOpen(true)}>
-          💵 خدت فلوس
+          <AppIcon name="banknote" size={19} />
+          خدت فلوس
         </button>
       )}
     </>

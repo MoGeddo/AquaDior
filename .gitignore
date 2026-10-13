@@ -11,9 +11,8 @@ build/
 
 # ===== Env (متترفعش فيها الـ keys) =====
 .env
-.env.local
-.env.*.local
-.env.production
+.env.*
+!.env*.example
 
 # ===== Logs =====
 logs
