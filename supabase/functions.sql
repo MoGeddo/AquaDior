@@ -140,7 +140,6 @@ declare
   v_result public.withdrawals;
   v_amount numeric;
   v_available numeric;
-  v_auto_limit numeric := 500;
 begin
   if auth.uid() is null or auth.uid() <> p_worker_id then
     raise exception 'غير مسموح بطلب فلوس لحساب آخر';
@@ -174,9 +173,6 @@ begin
     return v_result;
   end if;
 
-  select coalesce(nullif(s.value->>'auto_approve_limit', '')::numeric, 500)
-  into v_auto_limit from public.settings s where s.key = 'app';
-  v_auto_limit := coalesce(v_auto_limit, 500);
   select coalesce(b.available, 0) into v_available
   from public.worker_balances b where b.worker_id = auth.uid();
   v_available := greatest(coalesce(v_available, 0), 0);
@@ -188,9 +184,7 @@ begin
     (worker_id, project_id, amount, note, created_by, client_request_id, status, decided_by, decided_at)
   values
     (auth.uid(), null, v_amount, p_note, auth.uid(), p_request_id,
-     case when v_amount <= v_auto_limit then 'approved' else 'pending' end,
-     case when v_amount <= v_auto_limit then auth.uid() else null end,
-     case when v_amount <= v_auto_limit then now() else null end)
+     'pending', null, null)
   returning * into v_result;
   return v_result;
 end;
@@ -1153,7 +1147,6 @@ declare
   v_result public.withdrawals;
   v_amount numeric;
   v_available numeric;
-  v_auto_limit numeric := 500;
 begin
   if auth.uid() is null or auth.uid() <> p_worker_id then
     raise exception 'غير مسموح بطلب فلوس لحساب آخر';
@@ -1187,9 +1180,6 @@ begin
     return v_result;
   end if;
 
-  select coalesce(nullif(s.value->>'auto_approve_limit', '')::numeric, 500)
-  into v_auto_limit from public.settings s where s.key = 'app';
-  v_auto_limit := coalesce(v_auto_limit, 500);
   select coalesce(b.available, 0) into v_available
   from public.worker_balances b where b.worker_id = auth.uid();
   v_available := greatest(coalesce(v_available, 0), 0);
@@ -1201,9 +1191,7 @@ begin
     (worker_id, project_id, amount, note, created_by, client_request_id, status, decided_by, decided_at)
   values
     (auth.uid(), null, v_amount, p_note, auth.uid(), p_request_id,
-     case when v_amount <= v_auto_limit then 'approved' else 'pending' end,
-     case when v_amount <= v_auto_limit then auth.uid() else null end,
-     case when v_amount <= v_auto_limit then now() else null end)
+     'pending', null, null)
   returning * into v_result;
   return v_result;
 end;

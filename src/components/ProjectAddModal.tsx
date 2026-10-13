@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { enqueue, isConnectionError } from "../lib/db";
+import { arabicError } from "../lib/errors";
 import type { AvailableProject } from "../pages/worker/WorkerLayout";
 import { Modal } from "./Modal";
 
@@ -42,7 +43,7 @@ export default function ProjectAddModal({
       onDone(queued);
       onClose();
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذرت إضافة المشروع للحضور");
+      setError(arabicError(caught, "تعذرت إضافة المشروع للحضور."));
     } finally {
       setBusyId(null);
     }

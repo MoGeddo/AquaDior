@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../store/auth";
 import { money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import type { WorkerBalance } from "../../lib/types";
@@ -48,7 +49,7 @@ export default function WorkerLayout() {
       ]);
       const queryError = balanceError ?? projectError;
       if (queryError) {
-        setLoadError(queryError.message ?? "تعذر تحميل بيانات الحساب والمشاريع المفتوحة");
+        setLoadError(arabicError(queryError, "تعذر تحميل بيانات الحساب والمشاريع المفتوحة."));
         return;
       }
 
@@ -56,7 +57,7 @@ export default function WorkerLayout() {
       setProjects((activeProjects ?? []) as AvailableProject[]);
       setLoadError(null);
     } catch (error: any) {
-      setLoadError(error?.message ?? "تعذر تحميل بيانات الحساب");
+      setLoadError(arabicError(error, "تعذر تحميل بيانات الحساب."));
     } finally {
       setLoading(false);
     }

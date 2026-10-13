@@ -16,8 +16,8 @@ export default function SplashScreen({ leaving = false }: { leaving?: boolean })
         </div>
         <div className="brand-splash__wordmark" dir="rtl">
           <div className="brand-splash__name">أكوا ديور للمقاولات</div>
-          <div className="brand-splash__english" lang="en" dir="ltr">
-            AQUA DIOR CONTRACTING
+          <div className="brand-splash__subtitle">
+            نظام إدارة العمال والمشروعات
           </div>
         </div>
         <div className="brand-splash__loading" aria-hidden="true">

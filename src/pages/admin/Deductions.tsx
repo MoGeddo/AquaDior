@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "../../components/Modal";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateTime, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Deduction } from "../../lib/types";
 import AppIcon from "../../components/AppIcon";
 
@@ -10,9 +11,7 @@ type DeductionRow = Deduction & { workerName: string; workerPhone: string; creat
 const PAGE_SIZE = 100;
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value?.slice(0, 16) ?? "";
-  return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return fmtDateTime(value);
 }
 
 export default function Deductions() {
@@ -66,7 +65,7 @@ export default function Deductions() {
       setHasMore(deductions.length === PAGE_SIZE);
       setOffset(from + PAGE_SIZE);
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر تحميل سجل الخصومات");
+      setError(arabicError(caught, "تعذر تحميل سجل الخصومات."));
     } finally {
       if (firstPage) setLoading(false);
       else setLoadingMore(false);
@@ -105,7 +104,7 @@ export default function Deductions() {
       setReversing(null);
       setReverseReason("");
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر إلغاء الخصم؛ لم يتغير السجل المالي.");
+      setError(arabicError(caught, "تعذر إلغاء الخصم؛ لم يتغير السجل المالي."));
     } finally {
       setReverseBusy(false);
     }

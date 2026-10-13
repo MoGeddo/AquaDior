@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateTime, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Settlement, WorkerBalance } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 import AppIcon from "../../components/AppIcon";
@@ -23,9 +24,7 @@ function newRequestId(): string {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return fmtDateTime(value);
 }
 
 export default function Settlements() {
@@ -56,7 +55,7 @@ export default function Settlements() {
       setRows((settlementResult.data ?? []).map((row: any) => ({ ...row, worker: row.worker })) as SettlementRow[]);
       setWorkers((balanceResult.data ?? []) as WorkerBalance[]);
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر تحميل التسويات والأرصدة");
+      setError(arabicError(caught, "تعذر تحميل التسويات والأرصدة."));
     } finally {
       setLoading(false);
     }
@@ -90,11 +89,11 @@ export default function Settlements() {
     } catch (caught: any) {
       const message = String(caught?.message ?? "");
       if (caught?.code === "PGRST202" || /schema cache/i.test(message)) {
-        setError("دالة التسوية غير موجودة أو لم تُحدّث في Supabase Staging. شغّل تحديث SQL الخاص بالتسوية ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
+        setError("دالة التسوية غير موجودة أو لم تُحدّث في قاعدة الاختبار. شغّل تحديث قاعدة البيانات الخاص بالتسوية ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
       } else if (caught?.code === "42703" && /client_request_id/i.test(message)) {
-        setError("قاعدة Staging ينقصها عمود client_request_id. شغّل ملف SQL المُحدّث ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
+        setError("قاعدة الاختبار ينقصها عمود طلب التسوية. شغّل تحديث قاعدة البيانات ثم أعد المحاولة؛ لم تُسجّل أي حركة.");
       } else {
-        setError(message || "تعذر تسجيل التسوية؛ أعد المحاولة بنفس العملية بعد التحقق من القائمة.");
+        setError(arabicError(caught, "تعذر تسجيل التسوية؛ أعد المحاولة بعد التحقق من القائمة."));
       }
     } finally {
       setBusyWorkerId(null);

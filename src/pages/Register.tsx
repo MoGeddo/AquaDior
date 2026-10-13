@@ -5,6 +5,7 @@ import { supabase, DEMO_MODE } from "../lib/supabase";
 import { compressImage, fmtSize } from "../lib/image";
 import { AquaDiorShield } from "../components/AquaDiorLogo";
 import AppIcon from "../components/AppIcon";
+import { arabicError } from "../lib/errors";
 
 function registrationErrorMessage(message: string): string {
   const normalized = message.toLowerCase();
@@ -30,12 +31,7 @@ function registrationErrorMessage(message: string): string {
     return "تعذر رفع صورة البطاقة؛ تحتاج الإدارة لمراجعة مخزن الصور وصلاحياته.";
   }
 
-  const safeMessage = message
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "بيانات الحساب")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
-  return safeMessage ? `تعذر إكمال التسجيل: ${safeMessage}` : "تعذر إكمال التسجيل؛ حاول مرة أخرى أو تواصل مع الإدارة.";
+  return arabicError(message, "تعذر إكمال التسجيل؛ حاول مرة أخرى أو تواصل مع الإدارة.");
 }
 
 export default function Register() {
@@ -61,7 +57,7 @@ export default function Register() {
     const f = e.target.files?.[0];
     if (!f) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) {
-      return setErr("اختار صورة JPG أو PNG أو WebP فقط");
+      return setErr("نوع الصورة غير مدعوم؛ اختر صورة أخرى.");
     }
     if (f.size > 10 * 1024 * 1024) return setErr("حجم الصورة أكبر من 10 ميجابايت");
     setErr("");
@@ -223,7 +219,7 @@ export default function Register() {
             inputMode="numeric"
             maxLength={15}
             dir="ltr"
-            placeholder="01xxxxxxxxx"
+            placeholder="مثال: ٠١٠٠٠٠٠٠٠٠٠"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value.replace(/[^\d]/g, ""));
@@ -287,7 +283,7 @@ export default function Register() {
             dir="ltr"
             autoComplete="username"
             maxLength={32}
-            placeholder="ahmed.ali"
+            placeholder="اكتب اسم المستخدم"
             value={username}
             onChange={(e) => {
               setUsername(e.target.value.replace(/\s/g, ""));

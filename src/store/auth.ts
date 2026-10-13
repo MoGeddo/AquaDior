@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { supabase, phoneToEmail, SUPABASE_CONFIGURED, DEMO_MODE } from "../lib/supabase";
+import { arabicError } from "../lib/errors";
 import type { Profile } from "../lib/types";
 
 function toEmail(identifier: string): string {
@@ -150,7 +151,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           },
         },
       });
-      if (error) return { error: error.message };
+      if (error) return { error: arabicError(error, "تعذر إنشاء الحساب؛ حاول مرة أخرى أو تواصل مع الإدارة.") };
       if (!data.session) {
         // Supabase intentionally returns no identity details for an existing
         // email when email confirmation is enabled. Try signing in so a worker

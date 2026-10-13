@@ -4,6 +4,7 @@ import { useAuth } from "../../store/auth";
 import { supabase } from "../../lib/supabase";
 import { enqueue, isConnectionError } from "../../lib/db";
 import { money, todayStr, fmtDate } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Attendance, AttendanceProject } from "../../lib/types";
 import type { WorkerOutletContext } from "./WorkerLayout";
 import MoneyModal from "../../components/MoneyModal";
@@ -31,7 +32,7 @@ export default function WorkerHome() {
       .eq("work_date", todayStr())
       .maybeSingle();
     if (error) {
-      setMsg({ type: "error", text: `تعذر تحميل حضور اليوم: ${error.message}` });
+      setMsg({ type: "error", text: `تعذر تحميل حضور اليوم: ${arabicError(error, "حاول مرة أخرى.")}` });
       return false;
     }
     const record = (data as Attendance | null) ?? null;
@@ -45,7 +46,7 @@ export default function WorkerHome() {
       .select("attendance_id, project_id, project:projects(id, name, status)")
       .eq("attendance_id", record.id);
     if (linksError) {
-      setMsg({ type: "error", text: `تعذر تحميل مشاريع حضور اليوم: ${linksError.message}` });
+      setMsg({ type: "error", text: `تعذر تحميل مشاريع حضور اليوم: ${arabicError(linksError, "حاول مرة أخرى.")}` });
       return true;
     }
     setTodayProjects((links ?? []) as unknown as AttendanceProject[]);
@@ -105,7 +106,7 @@ export default function WorkerHome() {
       if (navigator.onLine) {
         const { error } = await supabase.rpc("register_attendance_multi", args);
         if (error) {
-          if (!isConnectionError(error)) throw new Error(error.message);
+          if (!isConnectionError(error)) throw error;
           await enqueue("rpc", "insert", { fn: "register_attendance_multi", args }, profile.id);
           queued = true;
         }
@@ -125,7 +126,7 @@ export default function WorkerHome() {
         ctx.reload();
       }
     } catch (error: any) {
-      setMsg({ type: "error", text: error?.message ?? "حصل خطأ أثناء تسجيل الحضور" });
+      setMsg({ type: "error", text: arabicError(error, "حصل خطأ أثناء تسجيل الحضور.") });
     } finally {
       setBusy(false);
     }
@@ -209,16 +210,16 @@ export default function WorkerHome() {
                   <AppIcon name="banknote" size={22} />
                   خدت فلوس
                 </span>
-                <small>يتخصم من رصيدك العام</small>
+                <small>طلب للمالك — الخصم بعد الموافقة فقط</small>
               </button>
             </div>
-            {(balance?.withdrawn_pending ?? 0) > 0 && <div className="alert info mt">عندك {money(balance?.withdrawn_pending ?? 0)} مستنية موافقة المالك</div>}
+            {(balance?.withdrawn_pending ?? 0) > 0 && <div className="alert info mt">عندك {money(balance?.withdrawn_pending ?? 0)} طلبات معلّقة. المبلغ محجوز من المتاح للتقديم فقط، وليس خصمًا من رصيدك النهائي.</div>}
           </>
         )}
       </div>
 
       <div className="card" style={{ background: "linear-gradient(160deg, #0f766e, #134e4a)", border: "none", color: "#fff", boxShadow: "0 10px 28px rgba(15,118,110,0.28)" }}>
-        <div style={{ fontSize: 12.5, opacity: 0.85, fontWeight: 700 }}>متاح تاخد دلوقتي — من رصيدك العام</div>
+        <div style={{ fontSize: 12.5, opacity: 0.85, fontWeight: 700 }}>متاح للتقديم بعد الطلبات المعلّقة</div>
         <div style={{ fontSize: 36, fontWeight: 800, letterSpacing: "-1px", lineHeight: 1.2, margin: "2px 0" }}>
           {money(balance?.available ?? 0)}
         </div>
@@ -228,13 +229,14 @@ export default function WorkerHome() {
       <div className="stats">
         <div className="stat"><div className="label">أيام الشغل</div><div className="value teal">{balance?.days_worked ?? 0}</div></div>
         <div className="stat"><div className="label">استحقاقك</div><div className="value">{money(balance?.earned ?? 0)}</div></div>
-        <div className="stat"><div className="label">خدت</div><div className="value amber">{money((balance?.withdrawn_approved ?? 0) + (balance?.withdrawn_pending ?? 0))}</div></div>
+        <div className="stat"><div className="label">اتصرف بموافقة</div><div className="value amber">{money(balance?.withdrawn_approved ?? 0)}</div></div>
+        <div className="stat"><div className="label">طلبات معلّقة</div><div className="value">{money(balance?.withdrawn_pending ?? 0)}</div></div>
         <div className="stat"><div className="label">يوميتك الثابتة</div><div className="value blue">{money(balance?.daily_wage ?? 0)}</div></div>
       </div>
 
       {showMoney && profile && <MoneyModal workerId={profile.id} balance={balance} onClose={() => setShowMoney(false)} onDone={(queued) => {
         if (!queued) ctx.reload();
-        setMsg({ type: queued ? "info" : "success", text: queued ? "طلب الصرف محفوظ محليًا وبانتظار المزامنة" : "اتسجّل" });
+        setMsg({ type: queued ? "info" : "success", text: queued ? "طلب الصرف محفوظ محليًا وبانتظار المزامنة" : "تم إرسال الطلب للمالك، وهو بانتظار الموافقة" });
       }} />}
 
       {showProject && today && profile && <ProjectAddModal attendanceId={today.id} workerId={profile.id} projects={ctx.projects} existing={existingProjectIds} onClose={() => setShowProject(false)} onDone={(queued) => {

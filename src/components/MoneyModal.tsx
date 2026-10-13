@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { enqueue, isConnectionError } from "../lib/db";
 import { money } from "../lib/calc";
+import { arabicError } from "../lib/errors";
 import { Modal } from "./Modal";
 import type { WorkerBalance } from "../lib/types";
 import AppIcon from "./AppIcon";
@@ -66,7 +67,7 @@ export default function MoneyModal({
       if (navigator.onLine) {
         const { error } = await supabase.rpc("register_withdrawal", args);
         if (error) {
-          if (!isConnectionError(error)) throw new Error(error.message);
+          if (!isConnectionError(error)) throw error;
           await enqueue("rpc", "insert", { fn: "register_withdrawal", args }, workerId);
           queued = true;
         }
@@ -77,7 +78,7 @@ export default function MoneyModal({
       onDone(queued);
       onClose();
     } catch (e: any) {
-      setErr(e.message ?? "حصل خطأ");
+      setErr(arabicError(e, "تعذر تسجيل طلب الصرف."));
     } finally {
       setBusy(false);
     }
@@ -91,8 +92,12 @@ export default function MoneyModal({
       {err && <div className="alert error">{err}</div>}
       {ok && <div className="alert success">{ok}</div>}
 
+      <div className="alert info" role="note">
+        كل طلب يذهب للمالك للموافقة. المبلغ المعلّق محجوز من المتاح فقط لمنع تجاوز الرصيد، ولا يُسجَّل خصمًا فعليًا إلا بعد الموافقة؛ وإذا رُفض الطلب يعود متاحًا.
+      </div>
+
       <div className="center mb">
-        <div className="small muted">متاح تاخد دلوقتي</div>
+        <div className="small muted">المتاح للتقديم بعد الطلبات المعلّقة</div>
         <div style={{ fontSize: 30, fontWeight: 800, color: "var(--success)" }}>
           {money(avail)}
         </div>
@@ -139,7 +144,7 @@ export default function MoneyModal({
         />
 
         <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? "جاري التسجيل..." : "تم"}
+          {busy ? "جاري إرسال الطلب…" : "إرسال طلب للمالك"}
         </button>
       </form>
     </Modal>

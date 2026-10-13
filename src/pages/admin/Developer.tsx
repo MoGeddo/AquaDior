@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
 import { db } from "../../lib/db";
-import { money } from "../../lib/calc";
+import { fmtDateTime, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
+import { arabicQueueActionLabel, arabicQueueTableLabel, arabicTableLabel } from "../../lib/presentation";
 import { Modal } from "../../components/Modal";
 import { useDialog } from "../../components/DialogProvider";
 import AppIcon from "../../components/AppIcon";
@@ -100,7 +102,7 @@ export default function Developer() {
           onClick={() => setTab("users")}
         >
           <AppIcon name="users" size={17} />
-          كل اليوزرات ({users.length})
+          كل المستخدمين ({users.length})
         </button>
         <button
           className={`btn btn-sm ${tab === "diag" ? "btn-primary" : ""}`}
@@ -164,7 +166,7 @@ export default function Developer() {
                       <td className="num" dir="ltr">
                         {u.phone ?? "—"}
                       </td>
-                      <td>{ROLE_LABEL[u.role] ?? u.role}</td>
+                      <td>{ROLE_LABEL[u.role] ?? "غير معروف"}</td>
                       <td>
                         <span
                           className={`badge ${
@@ -175,7 +177,7 @@ export default function Developer() {
                               : "red"
                           }`}
                         >
-                          {STATUS_LABEL[u.status] ?? u.status}
+                          {STATUS_LABEL[u.status] ?? "غير معروف"}
                         </span>
                       </td>
                       <td className="num">{money(u.daily_wage)}</td>
@@ -257,7 +259,7 @@ export default function Developer() {
               <div className="row">
                 <span className="muted">الوضع</span>
                 <span className="badge teal">
-                  {DEMO_MODE ? "تجريبي" : "Supabase حقيقي"}
+                  {DEMO_MODE ? "تجريبي" : "قاعدة البيانات الفعلية"}
                 </span>
               </div>
               <div className="row">
@@ -275,10 +277,10 @@ export default function Developer() {
               {queue.slice(0, 6).map((op) => (
                 <div className="row" key={op.id}>
                   <span className="small muted">
-                    {op.table} · {op.op}
+                    {arabicQueueTableLabel(op.table)} · {arabicQueueActionLabel(op.op)}
                   </span>
                   <span className="small red">
-                    {op.last_error ? op.last_error.slice(0, 40) : `محاولة ${op.tries}`}
+                    {op.last_error ? arabicError(op.last_error, "تعذر مزامنة العملية.").slice(0, 40) : `محاولة ${op.tries}`}
                   </span>
                 </div>
               ))}
@@ -308,7 +310,7 @@ export default function Developer() {
               <span className="icon-label"><AppIcon name="wrench" size={18} /><span>حلول سريعة</span></span>
             </div>
             <p className="small muted">
-              لو حد نسي اسم المستخدم → دور عليه في تبويب <b>كل اليوزرات</b> بالموبايل.
+              لو حد نسي اسم المستخدم → دور عليه في تبويب <b>كل المستخدمين</b> بالموبايل.
               <br />
               لو حد نسي كلمة السر → افتح حسابه واضغط <b>تعديل</b> → غيّر كلمة السر.
               <br />
@@ -338,7 +340,7 @@ export default function Developer() {
                 {logs.map((l) => (
                   <tr key={l.id}>
                     <td className="num small">
-                      {l.changed_at?.slice(0, 10)} {l.changed_at?.slice(11, 16)}
+                      {fmtDateTime(l.changed_at)}
                     </td>
                     <td>
                       <span
@@ -358,7 +360,7 @@ export default function Developer() {
                       </span>
                     </td>
                     <td className="small">
-                      {names[l.changed_by] ?? "النظام"} — {l.table_name}
+                      {names[l.changed_by] ?? "النظام"} — {arabicTableLabel(l.table_name)}
                     </td>
                   </tr>
                 ))}
@@ -430,19 +432,19 @@ function EditUser({
           p_daily_wage: wage ? Number(wage) : null,
           p_is_active: active,
         });
-        if (error) throw new Error(error.message);
+        if (error) throw error;
 
         if (newPass.trim().length >= 8) {
           const { error: pErr } = await supabase.rpc("reset_worker_password", {
             p_worker_id: user.id,
             p_password: newPass.trim(),
           });
-          if (pErr) throw new Error(pErr.message);
+          if (pErr) throw pErr;
         }
       }
       onDone();
     } catch (e: any) {
-      setErr(e.message ?? "حصل خطأ");
+      setErr(arabicError(e, "تعذر حفظ التغييرات."));
     }
     setBusy(false);
   }

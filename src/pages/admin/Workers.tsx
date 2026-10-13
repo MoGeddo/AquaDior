@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateOnly, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Deduction, WorkerBalance } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 import { useDialog } from "../../components/DialogProvider";
@@ -14,7 +15,9 @@ export default function Workers() {
   const canResetPassword = profile?.role === "developer";
   const [workers, setWorkers] = useState<WorkerBalance[]>([]);
   const [deletingWorkerId, setDeletingWorkerId] = useState<string | null>(null);
+  const [changingActiveId, setChangingActiveId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [workerFilter, setWorkerFilter] = useState<"active" | "inactive" | "all">("active");
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<WorkerBalance | null>(null);
   const [adding, setAdding] = useState(false);
@@ -22,7 +25,7 @@ export default function Workers() {
   const [loadError, setLoadError] = useState("");
   async function load() {
     const { data, error } = await supabase.from("worker_balances").select("*").order("full_name");
-    setLoadError(error?.message ?? "");
+    setLoadError(error ? arabicError(error, "تعذر تحميل قائمة العمال.") : "");
     if (!error) setWorkers((data ?? []) as WorkerBalance[]);
   }
 
@@ -45,7 +48,11 @@ export default function Workers() {
         p_worker_id: worker.worker_id,
       });
       if (error) {
-        setDeleteError(error.message);
+        const message = arabicError(error, "تعذر حذف العامل.");
+        const historyMessage = /لا يمكن حذف العامل/.test(message)
+          ? `${message} التسوية تثبت الصرف ولا تمسح الحضور أو التاريخ المالي. أوقف العامل لإخفائه من النشطين مع الاحتفاظ بسجلاته.`
+          : message;
+        setDeleteError(historyMessage);
         return;
       }
 
@@ -55,15 +62,57 @@ export default function Workers() {
           .from("id-cards")
           .remove([cardPath]);
         if (storageError) {
-          successMessage += " تعذّر حذف صورة البطاقة من التخزين؛ راجع ملفات id-cards في Supabase.";
+          successMessage += " تعذّر حذف صورة البطاقة من التخزين؛ راجع صور البطاقات من لوحة إدارة قاعدة البيانات.";
         }
       }
       setMsg(successMessage);
       await load();
     } catch (error: any) {
-      setDeleteError(error?.message ?? "تعذّر حذف العامل");
+      setDeleteError(arabicError(error, "تعذّر حذف العامل."));
     } finally {
       setDeletingWorkerId(null);
+    }
+  }
+
+  async function toggleWorkerActive(worker: WorkerBalance) {
+    if (changingActiveId || deletingWorkerId) return;
+    const activating = !worker.is_active;
+    const confirmed = await confirm({
+      title: activating ? `إعادة تفعيل «${worker.full_name}»؟` : `إيقاف «${worker.full_name}»؟`,
+      message: activating
+        ? "سيتمكن العامل من تسجيل الدخول والحضور وتقديم طلبات صرف جديدة. سجلاته السابقة كما هي."
+        : "سيُمنع العامل من تسجيل الدخول والحضور وتقديم طلبات جديدة، وسيختفي من قائمة النشطين. لن تُحذف أي سجلات حضور أو سحب أو تسوية.",
+      confirmText: activating ? "تفعيل العامل" : "إيقاف العامل مع حفظ السجلات",
+      cancelText: "إلغاء",
+      tone: activating ? "primary" : "danger",
+    });
+    if (!confirmed) return;
+
+    const phone = String(worker.phone ?? "").replace(/[^0-9]/g, "");
+    if (phone.length < 10) {
+      setDeleteError("لا يمكن تغيير حالة العامل لأن رقم هاتفه غير صالح؛ افتح التفاصيل وصحّح الرقم أولًا.");
+      return;
+    }
+    setDeleteError("");
+    setMsg("");
+    setChangingActiveId(worker.worker_id);
+    try {
+      const { error } = await supabase.rpc("save_worker_admin_details", {
+        p_worker_id: worker.worker_id,
+        p_full_name: worker.full_name,
+        p_phone: phone,
+        p_daily_wage: Number(worker.daily_wage ?? 0),
+        p_is_active: activating,
+      });
+      if (error) throw error;
+      setMsg(activating
+        ? `تم تفعيل «${worker.full_name}» مع الاحتفاظ بسجلاته السابقة.`
+        : `تم إيقاف «${worker.full_name}» وحُفظت كل سجلاته السابقة.`);
+      await load();
+    } catch (error: any) {
+      setDeleteError(`تعذر تغيير حالة العامل: ${arabicError(error, "حاول مرة أخرى.")}`);
+    } finally {
+      setChangingActiveId(null);
     }
   }
 
@@ -71,18 +120,42 @@ export default function Workers() {
     load();
   }, []);
 
-  const filtered = workers.filter((w) => w.full_name.includes(q) || (w.phone ?? "").includes(q));
+  const activeCount = workers.filter((worker) => worker.is_active).length;
+  const inactiveCount = workers.length - activeCount;
+  const filtered = workers.filter((w) =>
+    (workerFilter === "all" || (workerFilter === "active" ? w.is_active : !w.is_active)) &&
+    (w.full_name.includes(q) || (w.phone ?? "").includes(q))
+  );
 
   return (
     <>
       <div className="flex-between mb wrap">
-        <SearchField
-          value={q}
-          onChange={setQ}
-          maxWidth={280}
-          ariaLabel="البحث عن عامل بالاسم أو رقم الموبايل"
-          placeholder="ابحث بالاسم أو الموبايل"
-        />
+        <div className="flex wrap">
+          <SearchField
+            value={q}
+            onChange={setQ}
+            maxWidth={280}
+            ariaLabel="البحث عن عامل بالاسم أو رقم الموبايل"
+            placeholder="ابحث بالاسم أو الموبايل"
+          />
+          <div className="flex wrap" role="group" aria-label="تصفية العمال حسب الحالة">
+            {([
+              ["active", `النشطون (${activeCount})`],
+              ["inactive", `الموقوفون (${inactiveCount})`],
+              ["all", `الكل (${workers.length})`],
+            ] as ["active" | "inactive" | "all", string][]).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`btn btn-sm ${workerFilter === value ? "btn-primary" : ""}`}
+                aria-pressed={workerFilter === value}
+                onClick={() => setWorkerFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button className="btn btn-primary" onClick={() => setAdding(true)}>
           <AppIcon name="userPlus" size={18} />
           إضافة عامل
@@ -94,7 +167,7 @@ export default function Workers() {
       {loadError && <div className="alert error" role="alert">تعذر تحميل بعض البيانات: {loadError}</div>}
       {canResetPassword && (
         <div className="alert info" role="note">
-          الحذف النهائي للعامل متاح للمطوّر فقط إذا لم توجد له سجلات حضور أو مالية؛ عند وجودها استخدم إيقاف العامل للحفاظ على التاريخ.
+          الحذف النهائي للعامل متاح للمطوّر فقط إذا لم يكن له أي سجل. التسوية لا تمسح سجل الحضور أو الحركة المالية؛ لإخفاء عامل تمت تسويته من قائمة العمل استخدم «إيقاف»، وستجد سجلاته محفوظة تحت «الموقوفون».
         </div>
       )}
 
@@ -108,7 +181,7 @@ export default function Workers() {
                 <th>اليومية</th>
                 <th>أيام</th>
                 <th>استحقاق</th>
-                <th>خد</th>
+                <th>مصروف بموافقة</th>
                 <th>خصومات</th>
                 <th>تسويات</th>
                 <th>رصيد</th>
@@ -128,9 +201,7 @@ export default function Workers() {
                   <td className="num">{money(w.daily_wage)}</td>
                   <td className="num">{w.days_worked}</td>
                   <td className="num">{money(w.earned)}</td>
-                  <td className="num amber">
-                    {money(Number(w.withdrawn_approved) + Number(w.withdrawn_pending))}
-                  </td>
+                  <td className="num amber">{money(Number(w.withdrawn_approved))}</td>
                   <td className="num red">{money(Number(w.deducted))}</td>
                   <td className="num">{money(Number(w.settled_paid ?? 0))}</td>
                   <td className="num green">
@@ -138,6 +209,14 @@ export default function Workers() {
                   </td>
                   <td>
                     <div className="flex wrap">
+                      <button
+                        className={`btn btn-sm ${w.is_active ? "btn-ghost" : "btn-success"}`}
+                        onClick={() => void toggleWorkerActive(w)}
+                        disabled={Boolean(changingActiveId || deletingWorkerId)}
+                        aria-label={`${w.is_active ? "إيقاف" : "تفعيل"} العامل ${w.full_name}`}
+                      >
+                        {changingActiveId === w.worker_id ? "جاري التحديث…" : w.is_active ? "إيقاف" : "تفعيل"}
+                      </button>
                       <button className="btn btn-sm" onClick={() => setEditing(w)}>
                         <AppIcon name="folderOpen" size={16} />
                         تفاصيل
@@ -225,7 +304,7 @@ function AddWorker({
       p_daily_wage: Number(f.daily_wage || 0),
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ التغييرات."));
     onDone();
   }
 
@@ -314,10 +393,10 @@ function EditWorker({
         .order("created_at", { ascending: false })
         .limit(20);
       if (cancelled) return;
-      if (error) setDeductionLoadError(error.message ?? "تعذر تحميل الخصومات");
+      if (error) setDeductionLoadError(arabicError(error, "تعذر تحميل الخصومات."));
       else setDeductions((data ?? []) as Deduction[]);
     })().catch((error: any) => {
-      if (!cancelled) setDeductionLoadError(error?.message ?? "تعذر تحميل الخصومات");
+      if (!cancelled) setDeductionLoadError(arabicError(error, "تعذر تحميل الخصومات."));
     });
     return () => { cancelled = true; };
   }, [worker.worker_id]);
@@ -339,7 +418,7 @@ function EditWorker({
       p_is_active: active,
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ التغييرات."));
     setOk("تم الحفظ");
     onDone();
   }
@@ -365,7 +444,7 @@ function EditWorker({
       p_reason: dReason.trim(),
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ التغييرات."));
     setOk("تم الخصم");
     setDAmount("");
     setDReason("");
@@ -382,7 +461,7 @@ function EditWorker({
       p_password: newPass,
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ التغييرات."));
     setOk("تم تغيير كلمة السر");
     setNewPass("");
   }
@@ -514,7 +593,7 @@ function EditWorker({
                   <div className="deduction-amount num">
                     {deduction.voided_at ? <span className="badge gray">ملغي</span> : <>− {money(deduction.amount)}</>}
                   </div>
-                  <div className="small muted"><time dateTime={deduction.created_at}>{deduction.created_at?.slice(0, 10)}</time></div>
+                  <div className="small muted"><time dateTime={deduction.created_at}>{fmtDateOnly(deduction.created_at)}</time></div>
                   <div className="deduction-reason">{deduction.reason}{deduction.void_reason && <div className="small muted">سبب الإلغاء: {deduction.void_reason}</div>}</div>
                 </div>
               ))}

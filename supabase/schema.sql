@@ -328,7 +328,7 @@ create table if not exists public.settings (
 );
 
 insert into public.settings (key, value) values
-  ('app', '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
+  ('app', '{"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
   ('telegram', '{"chat_id":""}'::jsonb)
 on conflict (key) do nothing;
 -- Telegram bot tokens must never be stored in the client-readable settings table.

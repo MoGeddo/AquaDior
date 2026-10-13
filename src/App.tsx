@@ -14,6 +14,7 @@ import { clearBlockedQueue, queueSummary } from "./lib/db";
 import { startSyncLoop } from "./lib/sync";
 import { DEMO_MODE, SUPABASE_CONFIGURED } from "./lib/supabase";
 import { syncExternalPushIdentity } from "./lib/push";
+import { arabicError } from "./lib/errors";
 import AppIcon from "./components/AppIcon";
 
 const Login = lazy(() => import("./pages/Login"));
@@ -108,7 +109,7 @@ function OfflineBanner() {
             <AppIcon name="shieldAlert" size={16} />
             <span>رُفضت {queue.blocked} عملية وتوقفت إعادة المحاولة.</span>
           </span>
-          {queue.lastError && <div dir="auto">آخر سبب: {queue.lastError}</div>}
+          {queue.lastError && <div dir="auto">آخر سبب: {arabicError(queue.lastError, "تعذر مزامنة العملية.")}</div>}
           <button className="btn btn-sm mt" onClick={clearRejectedOperations}>
             <AppIcon name="trash2" size={17} />
             حذف العمليات المرفوضة من هذا الجهاز
@@ -212,8 +213,7 @@ export default function App() {
         <div className="login-card center">
           <h1>التطبيق غير مهيّأ</h1>
           <p className="muted">
-            قاعدة البيانات غير مربوطة. اضبط VITE_SUPABASE_URL و
-            VITE_SUPABASE_ANON_KEY في إعدادات النشر. لا تدخل بيانات حقيقية في وضع تجريبي.
+            قاعدة البيانات غير مربوطة. يحتاج المطوّر إلى إعداد اتصال قاعدة البيانات في إعدادات النشر. لا تدخل بيانات حقيقية في الوضع التجريبي.
           </p>
         </div>
       </div>
@@ -227,7 +227,7 @@ export default function App() {
           {DEMO_MODE && (
             <div className="offline-banner demo-mode-banner" role="status">
               <AppIcon name="shieldAlert" size={18} />
-              <span>وضع Demo — بيانات وهمية محفوظة محليًا، ولا تمثل أي حسابات أو أرصدة حقيقية.</span>
+              <span>وضع تجريبي — بيانات وهمية محفوظة محليًا، ولا تمثل أي حسابات أو أرصدة حقيقية.</span>
             </div>
           )}
           <OfflineBanner />

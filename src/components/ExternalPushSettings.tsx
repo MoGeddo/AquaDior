@@ -8,6 +8,7 @@ import {
   getExternalPushEnabled,
   prepareExternalPush,
 } from "../lib/push";
+import { arabicError } from "../lib/errors";
 import AppIcon from "./AppIcon";
 
 function isIosBrowser() {
@@ -59,7 +60,7 @@ export default function ExternalPushSettings({ userId }: { userId: string }) {
       setEnabled(true);
       setMessage("تم تفعيل الإشعارات على هذا الجهاز");
     } catch (reason: any) {
-      setError(reason?.message ?? "تعذر تفعيل الإشعارات. تحقق من إذن الإشعارات ثم أعد المحاولة.");
+      setError(arabicError(reason, "تعذر تفعيل الإشعارات. تحقق من إذن الإشعارات ثم أعد المحاولة."));
     } finally {
       setBusy(false);
     }
@@ -74,7 +75,7 @@ export default function ExternalPushSettings({ userId }: { userId: string }) {
       setEnabled(false);
       setMessage("تم إيقاف الإشعارات الخارجية على هذا الجهاز.");
     } catch (reason: any) {
-      setError(reason?.message ?? "تعذر إيقاف الإشعارات.");
+      setError(arabicError(reason, "تعذر إيقاف الإشعارات."));
     } finally {
       setBusy(false);
     }
@@ -90,11 +91,11 @@ export default function ExternalPushSettings({ userId }: { userId: string }) {
       </p>
       {!configured ? (
         <div className="alert info" role="status">
-          الإشعارات جاهزة في التطبيق، لكنها تنتظر ربط حساب OneSignal وإعداد مفاتيح الإرسال.
+          الإشعارات جاهزة في التطبيق، لكنها تنتظر ربط مزوّد الإشعارات وإعداد مفاتيح الإرسال.
         </div>
       ) : needsIosInstall ? (
         <div className="alert info" role="status">
-          على iPhone من المتصفح (iOS 16.4 فأحدث)، أضف التطبيق أولًا إلى الشاشة الرئيسية من Safari، أو استخدم نسخة TestFlight عند تجهيزها، ثم فعّل الإشعارات.
+          على هواتف آيفون، أضف التطبيق أولًا إلى الشاشة الرئيسية من المتصفح؛ الإشعارات الخارجية تحتاج نسخة تطبيق أو متصفحًا يدعمها. ثم فعّل الإشعارات.
         </div>
       ) : (
         <div className="flex" style={{ alignItems: "center", flexWrap: "wrap" }}>

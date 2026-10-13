@@ -287,6 +287,10 @@ check(
 );
 check("لوحة التحكم فيها بيانات", text().length > 300, `${text().length} حرف`);
 check("بطاقات لوحة الإدارة تستخدم أيقونات موحدة", $$(".card-title .icon-label .app-icon").length >= 5);
+check(
+  "لوحة الإدارة تعرض عدم التسجيل دون استنتاج الغياب",
+  /دون تسجيل حضور/.test(text()) && /لا تعني الغياب/.test(text()) && !/غايبين/.test(text())
+);
 
 // ---- 3) كل شاشات الإدارة ----
 const ADMIN_ROUTES = [
@@ -329,6 +333,10 @@ for (const [route, label] of ADMIN_ROUTES) {
           !!$("[role='region'][aria-label='جدول طلبات السحب'][tabindex='0']")
       );
     }
+    if (route === "/admin/audit") {
+      const localizedTimes = $$('time').map((element) => element.textContent || "");
+      check("تاريخ ووقت الإشعارات بالعربية وبصيغة ١٢ ساعة", localizedTimes.length === 0 || localizedTimes.every((value) => /[٠-٩]{1,2}:[٠-٩]{2}\s+(?:صباحًا|مساءً)/.test(value)));
+    }
     if (route === "/admin/projects") {
       check(
         "تبويبات المشاريع بأيقونات موحدة وحالة اختيار واضحة",
@@ -367,16 +375,16 @@ await waitFor(() => window.location.pathname === "/admin/projects" && /إزاي 
 check("الحذف النهائي للمشروع مخفي عن المالك", !buttonByText(/حذف نهائي/));
 const exportProjectRow = $$("tbody tr").find((row) => row.textContent?.includes("مشروع اختبار آلي"));
 const exportProjectButton = [...(exportProjectRow?.querySelectorAll("button") ?? [])]
-  .find((button) => /CSV/.test(button.textContent || ""));
+  .find((button) => /تصدير/.test(button.textContent || ""));
 if (exportProjectButton) {
   click(exportProjectButton);
-  await waitFor(() => $('[role="dialog"]') && /تصدير CSV متاح/.test(text()), { label: "رسالة التصدير في Demo" });
+  await waitFor(() => $('[role="dialog"]') && /التصدير غير متاح في الوضع التجريبي/.test(text()), { label: "رسالة التصدير في Demo" });
   check("رسالة التصدير تظهر داخل التطبيق لا في نافذة المتصفح", !!$(".modal-backdrop.is-centered [role=dialog]"));
   const closeExportMessage = buttonInDialog('[role="dialog"]', /حسنًا/);
   if (closeExportMessage) click(closeExportMessage);
   await waitFor(() => !$('[role="dialog"]'), { label: "إغلاق رسالة التصدير" });
 } else {
-  check("رسالة التصدير تظهر داخل التطبيق لا في نافذة المتصفح", false, "زر CSV غير ظاهر");
+  check("رسالة التصدير تظهر داخل التطبيق لا في نافذة المتصفح", false, "زر التصدير غير ظاهر");
 }
 
 setPath("/admin/workers");
@@ -515,7 +523,7 @@ if (workerNotificationsButton) {
   await waitFor(() => /مشروع مفتوح للعاملين/.test(text()), { label: "عرض إشعار المشروع المفتوح للعامل" });
   check("أيقونات إشعارات العامل موحدة", $$(".notification-icon .app-icon").length > 0);
   check("العامل يرى أن المشروع المفتوح متاح دون تعيين فردي", /مشروع اختبار آلي/.test(text()));
-  check("زر Push الخارجي لا يتفعّل قبل إعداد المزود", text().includes("تنتظر ربط حساب OneSignal") && !buttonByText(/تفعيل إشعارات الهاتف/));
+  check("إشعارات الهاتف لا تتفعّل قبل إعداد المزوّد", /تنتظر ربط مزوّد الإشعارات/.test(text()) && !buttonByText(/تفعيل إشعارات الهاتف/));
   const markNotificationRead = $('[aria-label^="تعليم"]');
   if (markNotificationRead) {
     click(markNotificationRead);
@@ -639,7 +647,7 @@ if (onlineWorkerOut) {
 await login("worker01", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/worker"), { label: "العودة للعامل الأساسي" });
 
-// ---- 6) أخذ فلوس (مبلغ صغير — المفروض يعدّي) ----
+// ---- 6) طلب سحب صغير يظل معلّقًا حتى موافقة المالك ----
 await sleep(600);
 const moneyBtn = buttonByText(/خدت فلوس/);
 if (moneyBtn) {
@@ -650,16 +658,21 @@ if (moneyBtn) {
   if (amountInput) {
     setValue(amountInput, "100");
     await sleep(250);
-    const okBtn = buttonByText(/^تم$/);
+    const okBtn = buttonByText(/^إرسال طلب للمالك$/);
     if (okBtn) {
       click(okBtn);
       try {
-        await waitFor(() => !/جاري التسجيل/.test(text()) && !$(".modal"), { timeout: 9000, label: "تسجيل الفلوس" });
-        check("💵 أخذ فلوس (100 ج) اتسجّل", errors.length === errBefore);
+        await waitFor(() => !/جاري إرسال الطلب/.test(text()) && !$(".modal"), { timeout: 9000, label: "إرسال طلب السحب" });
+        const pendingWithdrawal = window.__smokeDemoDB?.withdrawals?.find((row) => Number(row.amount) === 100);
+        const ownerWithdrawalNotice = window.__smokeDemoDB?.notifications?.some((row) => row.user_id === "demo-owner" && row.type === "withdrawal_pending");
+        const workerEarned = (window.__smokeDemoDB?.attendance ?? []).filter((row) => row.worker_id === "smoke-worker-1").reduce((sum, row) => sum + Number(row.daily_wage_snapshot ?? 0), 0);
+        check("💵 طلب 100 جنيه يبقى معلّقًا حتى موافقة المالك", pendingWithdrawal?.status === "pending" && errors.length === errBefore);
+        check("المالك يستقبل تنبيهًا بطلب السحب", ownerWithdrawalNotice);
+        check("الطلب المعلّق لا يخصم من الرصيد النهائي", workerEarned === 350 && !window.__smokeDemoDB?.withdrawals?.some((row) => row.worker_id === "smoke-worker-1" && row.status === "approved"));
       } catch (e) {
         check("💵 أخذ فلوس (100 ج) اتسجّل", false, e.message);
       }
-    } else check("💵 أخذ فلوس (100 ج) اتسجّل", false, "مفيش زرار «تم»");
+    } else check("💵 طلب 100 جنيه يحتاج موافقة المالك", false, "مفيش زر إرسال طلب للمالك");
   } else check("💵 أخذ فلوس (100 ج) اتسجّل", false, "مفيش خانة المبلغ");
 } else {
   check("💵 أخذ فلوس (100 ج) اتسجّل", false, "زر «خدت فلوس» مش ظاهر (يمكن الحضور مسجّلش)");
@@ -676,7 +689,7 @@ if (moneyBtn2) {
   if (amt) {
     setValue(amt, "999999");
     await sleep(250);
-    const okBtn = buttonByText(/^تم$/);
+    const okBtn = buttonByText(/^إرسال طلب للمالك$/);
     if (okBtn) {
       click(okBtn);
       await sleep(1500);
@@ -702,6 +715,63 @@ if (workerOutBtn) {
 }
 await login("mostafageddo", "demo-only-pass");
 await waitFor(() => window.location.pathname.startsWith("/admin"), { label: "العودة للمطوّر", timeout: 12000 });
+setPath("/admin");
+await waitFor(() => window.location.pathname === "/admin" && /مستني موافقتك/.test(text()), { label: "ملخص طلبات السحب المعلّقة في لوحة الإدارة" });
+const todayMoneyCard = $$(".stats .stat").find((card) => /فلوس النهاردة/.test(card.textContent || ""));
+const formattedDashboardZero = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(0);
+check("لوحة الإدارة تفصل الطلب المعلّق ولا تعرضه كصرف فعلي اليوم", /مستني موافقتك/.test(text()) && todayMoneyCard?.querySelector(".value")?.textContent?.includes(formattedDashboardZero));
+
+// ---- تقرير الشهر/الفترة: يوم العامل يُحسب مرة واحدة رغم تعدد المشاريع ----
+setPath("/admin/attendance");
+await waitFor(() => window.location.pathname === "/admin/attendance" && !!buttonByText(/^الشهر$/), { label: "خيارات تقرير الحضور" });
+const monthViewButton = buttonByText(/^الشهر$/);
+if (monthViewButton) click(monthViewButton);
+await waitFor(() => /ملخص شهر/.test(text()) && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "ملخص حضور الشهر" });
+const firstWorkerMonthRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+check("ملخص الشهر يعرض العامل وأيام حضوره المسجلة", firstWorkerMonthRow?.querySelectorAll("td")[1]?.textContent?.trim() === formattedOneDay);
+check("اليومية لا تتكرر رغم ربط اليوم بأربعة مشاريع", firstWorkerMonthRow?.querySelectorAll("td")[2]?.textContent?.includes(formattedDailyWage));
+const attendanceProjectFilter = $('select[aria-label="فلترة الحضور حسب المشروع"]');
+if (attendanceProjectFilter) {
+  setValue(attendanceProjectFilter, "smoke-project-2");
+  await waitFor(() => {
+    const row = $$("tbody tr").find((item) => item.textContent?.includes("عامل اختبار آلي"));
+    return row?.querySelectorAll("td")[1]?.textContent?.trim() === formattedOneDay && row.querySelectorAll("td")[2]?.textContent?.includes(formattedDailyWage);
+  }, { label: "فلترة الشهر بمشروع واحد دون تكرار اليومية" });
+  check("فلترة أحد المشاريع لا تضاعف أجر اليوم", true);
+}
+const customPeriodButton = buttonByText(/^فترة مخصصة$/);
+if (customPeriodButton) click(customPeriodButton);
+await waitFor(() => $$("input[type=\"date\"]").length === 2 && /لا نستنتج أيام الغياب/.test(text()), { label: "تقرير الفترة المخصصة وحساب الحضور فقط" });
+check("الحضور يوفر فترة مخصصة ولا يستنتج غيابًا دون جدول عمل", true);
+
+const allAttendanceButton = buttonByText(/^الكل$/);
+if (allAttendanceButton) click(allAttendanceButton);
+await waitFor(() => /ملخص كل سجلات الحضور/.test(text()) && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "عرض كل سجلات الحضور" });
+const allWorkerAttendance = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+check("وضع الكل يعرض تاريخ العامل ويحسب اليومية مرة واحدة", allWorkerAttendance?.querySelectorAll("td")[1]?.textContent?.trim() === formattedOneDay && allWorkerAttendance?.querySelectorAll("td")[2]?.textContent?.includes(formattedDailyWage));
+
+const selectedDayButton = buttonByText(/^اليوم المحدد$/);
+if (selectedDayButton) click(selectedDayButton);
+await waitFor(() => !!$("input[type=\"date\"]") && !!buttonByText(/^اليوم المحدد$/) && !!$("[role=\"region\"][aria-label=\"جدول حضور العمال\"]"), { label: "عرض اليوم المحدد" });
+const selectedDayHeader = $(".card .card-title");
+const recordedTimeCell = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"))?.querySelectorAll("td")[4]?.textContent || "";
+check("اليوم المحدد يعرض التاريخ بالأرقام العربية", /[٠-٩]/.test(selectedDayHeader?.textContent || ""));
+check("وقت الحضور بصيغة ١٢ ساعة مع صباحًا أو مساءً", /(?:صباحًا|مساءً)/.test(recordedTimeCell));
+
+setPath("/admin/withdrawals");
+await waitFor(() => window.location.pathname === "/admin/withdrawals" && !!$('input[aria-label="البحث في طلبات السحب"]') && !!$("[role='region'][aria-label='جدول طلبات السحب'][tabindex='0']") && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "طلب السحب المعلّق للمالك" });
+const pendingMoneyRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+const approveMoneyButton = [...(pendingMoneyRow?.querySelectorAll("button") ?? [])].find((button) => /موافقة/.test(button.textContent || ""));
+if (approveMoneyButton) {
+  check("قائمة الفلوس تعرض الطلب الصغير كطلب معلّق", /مستني/.test(pendingMoneyRow?.textContent || ""));
+  click(approveMoneyButton);
+  await waitFor(() => $('[role="alertdialog"]') && /اعتماد طلب السحب/.test(text()), { label: "تأكيد موافقة المالك على طلب السحب" });
+  const approveRequest = buttonInDialog('[role="alertdialog"]', /^اعتماد الطلب$/);
+  if (approveRequest) click(approveRequest);
+  await waitFor(() => window.__smokeDemoDB?.withdrawals?.some((row) => row.worker_id === "smoke-worker-1" && Number(row.amount) === 100 && row.status === "approved"), { label: "اعتماد المالك يسجل الصرف" });
+  check("خصم السحب يبدأ فقط بعد موافقة المالك", true);
+} else check("خصم السحب يبدأ فقط بعد موافقة المالك", false, "زر الموافقة على الطلب المعلّق غير ظاهر");
+
 setPath("/admin/workers");
 await waitFor(
   () => window.location.pathname === "/admin/workers" && /الحذف النهائي للعامل متاح/.test(text()),
@@ -717,6 +787,35 @@ if (attendedWorkerDeleteButton) {
   if (confirmWorkerDelete) click(confirmWorkerDelete);
   await waitFor(() => /لا يمكن حذف العامل/.test(text()), { label: "منع حذف عامل له تاريخ" });
   check("الحذف يرفض عاملًا لديه حضور/مال ويحفظه", !!attendedWorkerRow?.textContent?.includes("عامل اختبار آلي"));
+  const activeWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+  const deactivateWorkerButton = [...(activeWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /^إيقاف$/.test(button.textContent?.trim() || ""));
+  if (deactivateWorkerButton) {
+    click(deactivateWorkerButton);
+    await waitFor(() => $('[role="alertdialog"]') && /إيقاف العامل/.test(text()), { label: "تأكيد إيقاف عامل مع حفظ سجلاته" });
+    const confirmDeactivate = buttonInDialog('[role="alertdialog"]', /^إيقاف العامل مع حفظ السجلات$/);
+    if (confirmDeactivate) click(confirmDeactivate);
+    await waitFor(() => !$$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "إخفاء العامل الموقوف من النشطين" });
+    check("إيقاف العامل يخفيه من النشطين ولا يمسح سجلاته", window.__smokeDemoDB?.attendance?.some((row) => row.worker_id === "smoke-worker-1") && window.__smokeDemoDB?.withdrawals?.some((row) => row.worker_id === "smoke-worker-1"));
+    const inactiveWorkersButton = buttonByText(/الموقوفون \(/);
+    if (inactiveWorkersButton) click(inactiveWorkersButton);
+    await waitFor(() => $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "عرض العمال الموقوفين" });
+    const inactiveWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
+    const reactivateWorkerButton = [...(inactiveWorkerRow?.querySelectorAll("button") ?? [])].find((button) => /^تفعيل$/.test(button.textContent?.trim() || ""));
+    if (reactivateWorkerButton) {
+      click(reactivateWorkerButton);
+      await waitFor(() => $('[role="alertdialog"]') && /إعادة تفعيل/.test(text()), { label: "تأكيد إعادة تفعيل العامل" });
+      const confirmReactivate = buttonInDialog('[role="alertdialog"]', /^تفعيل العامل$/);
+      if (confirmReactivate) click(confirmReactivate);
+      await waitFor(() => !$$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "إخفاء العامل من تبويب الموقوفين بعد تفعيله" });
+      const activeWorkersButton = buttonByText(/النشطون \(/);
+      if (activeWorkersButton) click(activeWorkersButton);
+      await waitFor(() => $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "عودة العامل إلى قائمة النشطين" });
+      check("يمكن إعادة تفعيل العامل مع بقاء تاريخه", true);
+    } else check("يمكن إعادة تفعيل العامل مع بقاء تاريخه", false, "زر تفعيل العامل الموقوف غير ظاهر");
+  } else {
+    check("إيقاف العامل يحفظ سجلاته ويخفيه من النشطين", false, "زر إيقاف العامل غير ظاهر");
+    check("يمكن إعادة تفعيل العامل مع بقاء تاريخه", false, "تعذر اختبار الإيقاف");
+  }
 } else {
   check("الحذف يرفض عاملًا لديه حضور/مال ويحفظه", false, "لم يظهر صف العامل للاختبار");
 }
@@ -867,7 +966,7 @@ if (settleButton) {
   check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", text().includes(formattedSettlementAmount) && /اتصرف/.test(text()));
 } else check("التسوية تسجل 225 جنيهًا وتظهر في سجل الصرف", false, "زر التسوية غير ظاهر");
 setPath("/admin/workers");
-await waitFor(() => window.location.pathname === "/admin/workers" && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "تحديث رصيد العامل بعد التسوية" });
+await waitFor(() => window.location.pathname === "/admin/workers" && !!$('input[aria-label="البحث عن عامل بالاسم أو رقم الموبايل"]') && $$("tbody tr").some((row) => row.textContent?.includes("عامل اختبار آلي")), { label: "تحديث رصيد العامل بعد التسوية" });
 const settledWorkerRow = $$("tbody tr").find((row) => row.textContent?.includes("عامل اختبار آلي"));
 const formattedZeroBalance = new window.Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(0);
 check("صرف التسوية يخفض الرصيد العام للعامل إلى صفر", settledWorkerRow?.querySelectorAll("td")[8]?.textContent?.includes(formattedZeroBalance));

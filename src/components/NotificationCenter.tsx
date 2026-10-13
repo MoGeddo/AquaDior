@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Notification } from "../lib/types";
+import { fmtDateTime } from "../lib/calc";
+import { arabicError } from "../lib/errors";
+import { localizeDateText } from "../lib/presentation";
 import { Modal } from "./Modal";
 import ExternalPushSettings from "./ExternalPushSettings";
 import AppIcon, { type AppIconName } from "./AppIcon";
@@ -23,15 +26,6 @@ const ICONS: Record<string, AppIconName> = {
   attendance_new: "calendarCheck",
   settlement_paid: "receiptCheck",
 };
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("ar-EG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
 
 export default function NotificationCenter({
   userId,
@@ -60,7 +54,7 @@ export default function NotificationCenter({
       .order("created_at", { ascending: false })
       .limit(100);
     if (queryError) {
-      setError(queryError.message ?? "تعذر تحميل الإشعارات");
+      setError(arabicError(queryError, "تعذر تحميل الإشعارات."));
       setItems([]);
     } else {
       setItems((data ?? []) as Notification[]);
@@ -82,7 +76,7 @@ export default function NotificationCenter({
       .eq("user_id", userId)
       .eq("is_read", false);
     if (updateError) {
-      setError(updateError.message ?? "تعذر تحديث الإشعار");
+      setError(arabicError(updateError, "تعذر تحديث الإشعار."));
       setBusyId(null);
       return;
     }
@@ -100,7 +94,7 @@ export default function NotificationCenter({
       .eq("user_id", userId)
       .eq("is_read", false);
     if (updateError) {
-      setError(updateError.message ?? "تعذر تحديث الإشعارات");
+      setError(arabicError(updateError, "تعذر تحديث الإشعارات."));
     } else {
       setItems((current) => current.map((item) => ({ ...item, is_read: true })));
       onUnreadChange("refresh");
@@ -146,14 +140,14 @@ export default function NotificationCenter({
                 <AppIcon name={ICONS[item.type] ?? "bell"} size={19} />
               </div>
               <div className="notification-content">
-                <div className="notification-title">{item.title}</div>
-                {item.body && <div className="notification-body">{item.body}</div>}
-                <time className="small muted" dateTime={item.created_at}>{formatDate(item.created_at)}</time>
+                <div className="notification-title">{localizeDateText(item.title)}</div>
+                {item.body && <div className="notification-body">{localizeDateText(item.body)}</div>}
+                <time className="small muted" dateTime={item.created_at}>{fmtDateTime(item.created_at)}</time>
               </div>
               {!item.is_read && (
                 <button
                   className="btn btn-sm btn-ghost notification-read"
-                  aria-label={`تعليم «${item.title}» كمقروء`}
+                  aria-label={`تعليم «${localizeDateText(item.title)}» كمقروء`}
                   title="تعليم كمقروء"
                   onClick={() => void markRead(item.id)}
                   disabled={busyId === item.id}

@@ -66,7 +66,7 @@ export default function Login() {
                 dir="ltr"
                 maxLength={128}
                 autoComplete="username"
-                placeholder="username"
+                placeholder="اسم المستخدم"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />

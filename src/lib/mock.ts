@@ -253,8 +253,10 @@ function splitTopLevel(s: string): string[] {
 /** يدوّر على عمود الربط (foreign key) المناسب للصف */
 function findFkColumn(row: any, relName: string, hint?: string): string | null {
   const candidates: string[] = [];
-  // التلميح اللي جاي من Supabase: withdrawals_worker_id_fkey
-  const m = hint?.match(/^[\w]+_([\w]+)_fkey$/);
+  // Parse the foreign-key column before falling back to the hint text itself.
+  // A greedy table-name match used to mistake withdrawals_worker_id_fkey's
+  // column for just "id", so the owner saw "—" instead of the worker's name.
+  const m = hint?.match(/_(worker_id|project_id|attendance_id|site_id|user_id|profile_id|created_by|decided_by)_fkey$/);
   if (m) candidates.push(m[1]);
   if (hint) candidates.push(hint);
   const singular = relName.replace(/ies$/, "y").replace(/s$/, "");
@@ -371,7 +373,28 @@ function build(table: string) {
       pending = () => {
         // ⚠️ نعدّل الصفوف الأصلية نفسها (مش نسخ العرض)
         const rs = matched();
-        rs.forEach((r) => Object.assign(r, payload));
+        rs.forEach((r) => {
+          const previousStatus = r.status;
+          Object.assign(r, payload);
+          if (table === "withdrawals" && previousStatus !== r.status) {
+            const worker = demoDB.profiles.find((profile: any) => profile.id === r.worker_id);
+            const approved = r.status === "approved";
+            const title = approved ? "تمت الموافقة على طلب السحب" : "تم رفض طلب السحب";
+            const body = `${approved ? "وافق المالك" : "رفض المالك"} طلبك بمبلغ ${r.amount} ج.م`;
+            const data = { withdrawal_id: r.id, amount: r.amount, status: r.status };
+            const notification = (userId: string, type: string, notificationTitle: string, notificationBody: string) => ({
+              id: uid(), user_id: userId, type, title: notificationTitle, body: notificationBody,
+              data, is_read: false, created_at: new Date().toISOString(),
+            });
+            if (worker) demoDB.notifications.unshift(notification(worker.id, "withdrawal_decision", title, body));
+            demoDB.profiles
+              .filter((profile: any) => ["owner", "manager", "developer"].includes(profile.role) && profile.status === "active" && profile.is_active !== false)
+              .forEach((profile: any) => demoDB.notifications.unshift(notification(
+                profile.id, "withdrawal_decided", "قرار على طلب صرف",
+                `${worker?.full_name ?? "عامل"} — الطلب بقيمة ${r.amount} ج.م أصبح ${approved ? "موافقًا عليه" : "مرفوضًا"}`
+              )));
+          }
+        });
         return { data: rs, error: null };
       };
       scheduleFlush();
@@ -707,23 +730,21 @@ const rpcMock = async (fn: string, args: any) => {
     if (amount > Math.max(available, 0)) {
       return { data: null, error: { message: `المتاح من رصيدك العام ${Math.max(available, 0)} جنيه فقط` } };
     }
-    const autoLimit = Number(demoDB.settings[0]?.value?.auto_approve_limit ?? 500);
     const rec = {
       id: uid(), worker_id: args.p_worker_id, project_id: null, amount,
       note: args.p_note ?? null, client_request_id: args.p_request_id,
-      status: amount <= autoLimit ? "approved" : "pending",
-      decided_by: amount <= autoLimit ? "demo-owner" : null,
-      decided_at: amount <= autoLimit ? now() : null,
+      status: "pending",
+      decided_by: null,
+      decided_at: null,
       decision_note: null, created_by: args.p_worker_id, created_at: now(),
     };
     demoDB.withdrawals.push(rec);
-    const approved = rec.status === "approved";
-    pushNotification(args.p_worker_id, approved ? "withdrawal_auto" : "withdrawal_new",
-      approved ? "تمت الموافقة على طلب السحب" : "طلب السحب قيد المراجعة",
-      approved ? `تمت الموافقة تلقائيًا على طلبك بمبلغ ${amount} ج.م` : `طلبك بمبلغ ${amount} ج.م بانتظار قرار المالك`,
+    pushNotification(args.p_worker_id, "withdrawal_new",
+      "طلب السحب قيد المراجعة",
+      `طلبك بمبلغ ${amount} ج.م بانتظار موافقة المالك؛ لن يُخصم من رصيدك إلا بعد الموافقة`,
       { withdrawal_id: rec.id, amount, status: rec.status });
-    notifyAdmins(approved ? "withdrawal_auto" : "withdrawal_pending",
-      approved ? "صرف تلقائي" : "مطلوب موافقة", `${demoDB.profiles.find((p: any) => p.id === args.p_worker_id)?.full_name ?? "عامل"} طلب ${amount} ج.م`,
+    notifyAdmins("withdrawal_pending", "طلب سحب جديد",
+      `${demoDB.profiles.find((p: any) => p.id === args.p_worker_id)?.full_name ?? "عامل"} طلب ${amount} ج.م — بانتظار موافقة المالك`,
       { worker_id: args.p_worker_id, withdrawal_id: rec.id, amount, status: rec.status });
     return { data: rec, error: null };
   }

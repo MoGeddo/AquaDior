@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateOnly, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Withdrawal, Profile } from "../../lib/types";
 import { useDialog } from "../../components/DialogProvider";
 import AppIcon from "../../components/AppIcon";
@@ -81,7 +82,7 @@ export default function Withdrawals() {
       setMsg(status === "approved" ? "تمت الموافقة" : "تم الرفض");
       await load();
     } catch (error: any) {
-      setMsg("خطأ: " + (error?.message ?? "تعذر تحديث الطلب"));
+      setMsg("خطأ: " + arabicError(error, "تعذر تحديث الطلب."));
     } finally {
       setBusy(false);
     }
@@ -143,7 +144,7 @@ export default function Withdrawals() {
                       {r.worker?.phone}
                     </div>
                   </td>
-                  <td className="num">{r.created_at?.slice(0, 10)}</td>
+                  <td className="num">{fmtDateOnly(r.created_at)}</td>
                   <td className="num">
                     <b>{money(r.amount)}</b>
                   </td>

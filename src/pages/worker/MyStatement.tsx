@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useAuth } from "../../store/auth";
 import { supabase } from "../../lib/supabase";
-import { money } from "../../lib/calc";
+import { fmtDateOnly, money } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { WorkerBalance, Attendance, Withdrawal, Deduction, Settlement } from "../../lib/types";
 import AppIcon from "../../components/AppIcon";
 
@@ -95,7 +96,7 @@ export default function MyStatement() {
       setOffset(from + PAGE_SIZE);
       setError("");
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر تحميل كشف الحساب");
+      setError(arabicError(caught, "تعذر تحميل كشف الحساب."));
     } finally {
       if (firstPage) setLoading(false);
       else setLoadingMore(false);
@@ -130,9 +131,9 @@ export default function MyStatement() {
           <div className="value">{money(bal?.earned ?? 0)}</div>
         </div>
         <div className="stat">
-          <div className="label">خدت</div>
+          <div className="label">مصروف بموافقة</div>
           <div className="value amber">
-            {money((bal?.withdrawn_approved ?? 0) + (bal?.withdrawn_pending ?? 0))}
+            {money(bal?.withdrawn_approved ?? 0)}
           </div>
         </div>
         <div className="stat">
@@ -182,7 +183,7 @@ export default function MyStatement() {
               <tbody>
                 {att.map((a) => (
                   <tr key={a.id}>
-                    <td className="num">{a.work_date}</td>
+                    <td className="num">{fmtDateOnly(a.work_date)}</td>
                     <td className="muted small">{(projectsByAttendance[a.id] ?? []).join("، ") || "—"}</td>
                     <td className="num">{money(a.daily_wage_snapshot ?? bal?.daily_wage ?? 0)}</td>
                   </tr>
@@ -212,7 +213,7 @@ export default function MyStatement() {
               <tbody>
                 {wd.map((w) => (
                   <tr key={w.id}>
-                    <td className="num">{w.created_at?.slice(0, 10)}</td>
+                    <td className="num">{fmtDateOnly(w.created_at)}</td>
                     <td className="num">{money(w.amount)}</td>
                     <td>{statusBadge(w.status)}</td>
                   </tr>
@@ -242,7 +243,7 @@ export default function MyStatement() {
               <tbody>
                 {dd.map((d) => (
                   <tr key={d.id}>
-                    <td className="num">{d.created_at?.slice(0, 10)}</td>
+                    <td className="num">{fmtDateOnly(d.created_at)}</td>
                     <td className="num">
                       {d.voided_at ? <span className="badge gray">ملغي</span> : <>{money(d.amount)} <span className="small muted">ج.م</span></>}
                     </td>
@@ -271,7 +272,7 @@ export default function MyStatement() {
               <tbody>
                 {settlements.map((settlement) => (
                   <tr key={settlement.id}>
-                    <td className="num">{settlement.paid_at?.slice(0, 10) ?? settlement.created_at?.slice(0, 10)}</td>
+                    <td className="num">{fmtDateOnly(settlement.paid_at ?? settlement.created_at)}</td>
                     <td className="num">{settlement.days_worked}</td>
                     <td className="num">{money(settlement.total_earned)}</td>
                     <td className="num amber">{money(settlement.total_withdrawn)}</td>

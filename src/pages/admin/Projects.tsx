@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
 import type { Project } from "../../lib/types";
-import { todayStr } from "../../lib/calc";
+import { fmtDateOnly, fmtDateTime, fmtTime, todayStr } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import { Modal } from "../../components/Modal";
 import { useDialog } from "../../components/DialogProvider";
 import { useAuth } from "../../store/auth";
@@ -39,7 +40,7 @@ function downloadCsv(filename: string, data: any) {
   );
   lines.push("", csvRow("=== الحضور في المشروع/الموقع ==="), csvRow("التاريخ", "العامل", "المشاريع/المواقع المسجلة", "سجّل الساعة"));
   (data.attendance ?? []).forEach((attendance: any) =>
-    lines.push(csvRow(attendance.work_date, attendance.full_name, (attendance.projects ?? []).join("، "), attendance.created_at))
+    lines.push(csvRow(fmtDateOnly(attendance.work_date), attendance.full_name, (attendance.projects ?? []).join("، "), fmtDateTime(attendance.created_at)))
   );
 
   const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
@@ -112,13 +113,13 @@ export default function Projects() {
         p_project_id: projectId,
       });
       if (error) {
-        setDeleteError(error.message);
+        setDeleteError(arabicError(error, "تعذر حذف المشروع."));
         return;
       }
       setMsg(`تم حذف المشروع «${projectName}» نهائيًا.`);
       await load();
     } catch (error: any) {
-      setDeleteError(error?.message ?? "تعذّر حذف المشروع");
+      setDeleteError(arabicError(error, "تعذّر حذف المشروع."));
     } finally {
       setDeletingProjectId(null);
     }
@@ -149,7 +150,7 @@ export default function Projects() {
     const { error } = await supabase.rpc("close_project", { p_project_id: p.id });
     setBusy(false);
     if (error) {
-      setPwErr(error.message);
+      setPwErr(arabicError(error, "تعذرت أرشفة المشروع."));
       return;
     }
     setConfirm(null);
@@ -161,8 +162,8 @@ export default function Projects() {
   async function exportProject(p: Project) {
     if (DEMO_MODE) {
       await alert({
-        title: "التصدير غير متاح في وضع Demo",
-        message: "تصدير CSV متاح عند استخدام قاعدة Supabase الحقيقية فقط؛ بيانات Demo تجريبية ومحفوظة محليًا.",
+        title: "التصدير غير متاح في الوضع التجريبي",
+        message: "التصدير متاح عند الاتصال بقاعدة البيانات الفعلية فقط؛ بيانات الوضع التجريبي محلية وغير حقيقية.",
         tone: "info",
       });
       return;
@@ -173,7 +174,7 @@ export default function Projects() {
     if (error) {
       await alert({
         title: "تعذّر تصدير المشروع",
-        message: error.message,
+        message: arabicError(error, "تعذر تصدير المشروع."),
         tone: "error",
       });
       return;
@@ -254,7 +255,7 @@ export default function Projects() {
                       )}
                       {p.description && <div className="small muted">{p.description}</div>}
                     </td>
-                    <td className="num">{p.start_date ?? "—"}</td>
+                    <td className="num">{fmtDateOnly(p.start_date)}</td>
                     <td>
                       <span className="badge green">شغّال</span>
                     </td>
@@ -272,10 +273,10 @@ export default function Projects() {
                       <button
                         className="btn btn-sm"
                         onClick={() => exportProject(p)}
-                        aria-label={`تصدير بيانات المشروع ${p.name} بصيغة CSV`}
+                        aria-label={`تصدير بيانات المشروع ${p.name} في ملف جدولي`}
                       >
                         <AppIcon name="download" size={17} />
-                        CSV
+                        تصدير
                       </button>
                     </td>
                     <td>
@@ -345,7 +346,7 @@ export default function Projects() {
                     <td>
                       <b>{a.project_name}</b>
                     </td>
-                    <td className="num small">{(a.closed_at ?? "").slice(0, 10)}</td>
+                    <td className="num small">{fmtDateOnly(a.closed_at)}</td>
                     <td className="num">{a.workers_count}</td>
                     <td className="num">{a.attendance_count}</td>
                     <td>
@@ -369,10 +370,10 @@ export default function Projects() {
                             name: a.project_name,
                           } as Project)
                         }
-                        aria-label={`تصدير بيانات المشروع ${a.project_name} بصيغة CSV`}
+                        aria-label={`تصدير بيانات المشروع ${a.project_name} في ملف جدولي`}
                       >
                         <AppIcon name="download" size={17} />
-                        CSV
+                        تصدير
                       </button>
                     </td>
                     {isDeveloper && (
@@ -526,7 +527,7 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
       });
       if (cancelled) return;
       if (error) {
-        setErr(error.message);
+        setErr(arabicError(error, "تعذر تحميل تفاصيل المشروع."));
         setLoading(false);
         return;
       }
@@ -575,8 +576,8 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
               <span className="icon-label">
                 <AppIcon name="lockKeyhole" size={17} />
                 <span>
-                  المشروع مؤرشف منذ <b>{(proj.closed_at ?? "").slice(0, 10)}</b>.
-                  {proj.archived_at && <> دخل الأرشيف يوم <b>{proj.archived_at.slice(0, 10)}</b>.</>}
+                  المشروع مؤرشف منذ <b>{fmtDateOnly(proj.closed_at)}</b>.
+                  {proj.archived_at && <> دخل الأرشيف يوم <b>{fmtDateOnly(proj.archived_at)}</b>.</>}
                 </span>
               </span>
               <br />تظهر هنا أنشطة هذا المشروع فقط؛ الرصيد المالي محفوظ مرة واحدة في كشف العامل العام.
@@ -644,10 +645,10 @@ function ProjectDetail({ project, onClose }: { project: Project; onClose: () => 
                 <tbody>
                   {attendance.map((row, i) => (
                     <tr key={row.attendance_id ?? i}>
-                      <td className="num">{row.work_date}</td>
+                      <td className="num">{fmtDateOnly(row.work_date)}</td>
                       <td>{row.full_name}</td>
                       <td>{(row.projects ?? [project.name]).join("، ")}</td>
-                      <td className="num small">{row.created_at ? new Date(row.created_at).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                      <td className="num small">{fmtTime(row.created_at)}</td>
                     </tr>
                   ))}
                   {attendance.length === 0 && (
@@ -682,7 +683,7 @@ function ProjectForm({ onDone }: { onDone: () => void }) {
       created_by: (await supabase.auth.getUser()).data.user?.id,
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر تحميل تفاصيل المشروع."));
     onDone();
   }
 

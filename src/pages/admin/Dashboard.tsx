@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
-import { money, todayStr } from "../../lib/calc";
+import { fmtTime, money, todayStr } from "../../lib/calc";
+import { localizeDateText } from "../../lib/presentation";
 import type { WorkerBalance, Notification } from "../../lib/types";
 import { useAuth } from "../../store/auth";
 import AppIcon from "../../components/AppIcon";
@@ -13,7 +14,7 @@ export default function Dashboard() {
   const [present, setPresent] = useState(0);
   const [todayWd, setTodayWd] = useState(0);
   const [todayEarned, setTodayEarned] = useState(0);
-  const [absentNames, setAbsentNames] = useState<string[]>([]);
+  const [notRecordedNames, setNotRecordedNames] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     const t = todayStr();
@@ -32,6 +33,7 @@ export default function Dashboard() {
         supabase
           .from("withdrawals")
           .select("amount")
+          .eq("status", "approved")
           .gte("created_at", t + "T00:00:00"),
         supabase
           .from("notifications")
@@ -43,14 +45,14 @@ export default function Dashboard() {
       ]);
 
     const presentIds = new Set((att ?? []).map((a: any) => a.worker_id));
-    setPresent(presentIds.size);
+    setPresent(list.filter((worker) => presentIds.has(worker.worker_id)).length);
     setTodayWd((wd ?? []).reduce((s: number, x: any) => s + Number(x.amount), 0));
     setTodayEarned(
       (earn ?? []).reduce((s: number, x: any) => s + Number(x.wage), 0)
     );
     setNotifs((n ?? []) as Notification[]);
-    setAbsentNames(
-      list.filter((b) => !presentIds.has(b.worker_id)).map((b) => b.full_name)
+    setNotRecordedNames(
+      list.filter((worker) => !presentIds.has(worker.worker_id)).map((worker) => worker.full_name)
     );
   }, [profile?.id]);
 
@@ -84,7 +86,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="stat">
-          <div className="label">غايبين</div>
+          <div className="label">دون تسجيل حضور</div>
           <div className="value red">{balances.length - present}</div>
         </div>
         <div className="stat">
@@ -169,25 +171,26 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ===== الغايبين ===== */}
+      {/* ===== من لم يسجّلوا حضورًا ===== */}
       <div className="card">
         <div className="card-title">
           <span className="icon-label">
             <AppIcon name="hardHat" size={18} />
-            <span>العمال اللي مسجّلوش النهاردة ({absentNames.length})</span>
+            <span>العمال الذين لم يسجّلوا حضورًا اليوم ({notRecordedNames.length})</span>
           </span>
           <Link to="/admin/attendance" className="btn btn-sm">
             فتح الحضور
           </Link>
         </div>
-        {absentNames.length === 0 ? (
+        <p className="small muted">القائمة توضح وجود تسجيل حضور من عدمه فقط، ولا تعني الغياب؛ لم يُحدّد جدول لأيام العمل.</p>
+        {notRecordedNames.length === 0 ? (
           <div className="empty empty-with-icon">
             <AppIcon name="circleCheck" size={24} className="empty-state-icon" />
-            <span>كل العمال سجّلوا النهاردة</span>
+            <span>كل العمال سجّلوا حضورهم اليوم</span>
           </div>
         ) : (
           <div className="flex wrap" style={{ gap: 8 }}>
-            {absentNames.map((n) => (
+            {notRecordedNames.map((n) => (
               <span key={n} className="badge red">
                 {n}
               </span>
@@ -211,10 +214,10 @@ export default function Dashboard() {
         {notifs.map((n) => (
           <div className="row" key={n.id}>
             <div style={{ minWidth: 0 }}>
-              <div className="main">{n.title}</div>
-              <div className="meta">{n.body}</div>
+              <div className="main">{localizeDateText(n.title)}</div>
+              <div className="meta">{localizeDateText(n.body)}</div>
             </div>
-            <span className="small muted">{n.created_at?.slice(11, 16)}</span>
+            <span className="small muted">{fmtTime(n.created_at)}</span>
           </div>
         ))}
       </div>
@@ -237,18 +240,13 @@ export default function Dashboard() {
                 <th>العامل</th>
                 <th>أيام</th>
                 <th>استحقاق</th>
-                <th>خد</th>
+                <th>مصروف بموافقة</th>
                 <th>رصيد</th>
               </tr>
             </thead>
             <tbody>
               {[...balances]
-                .sort(
-                  (a, b) =>
-                    Number(b.withdrawn_approved) +
-                    Number(b.withdrawn_pending) -
-                    (Number(a.withdrawn_approved) + Number(a.withdrawn_pending))
-                )
+                .sort((a, b) => Number(b.withdrawn_approved) - Number(a.withdrawn_approved))
                 .slice(0, 8)
                 .map((b) => (
                   <tr key={b.worker_id}>
@@ -256,7 +254,7 @@ export default function Dashboard() {
                     <td className="num">{b.days_worked}</td>
                     <td className="num">{money(b.earned)}</td>
                     <td className="num" style={{ color: "var(--amber-600)" }}>
-                      {money(Number(b.withdrawn_approved) + Number(b.withdrawn_pending))}
+                      {money(Number(b.withdrawn_approved))}
                     </td>
                     <td className="num" style={{ color: "var(--green-600)" }}>
                       <b>{money(b.balance)}</b>

@@ -1056,13 +1056,14 @@ td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
   transform: translateY(12px);
   animation: splash-name-in 0.72s cubic-bezier(0.22, 1, 0.36, 1) 1.05s both;
 }
-.brand-splash__english {
+.brand-splash__subtitle {
   color: rgba(231, 207, 153, 0.86);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 10px;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.24em;
-  text-indent: 0.24em;
+  letter-spacing: 0;
+  text-indent: 0;
+  text-align: center;
   opacity: 0;
   transform: translateY(7px);
   animation: splash-name-in 0.6s ease-out 1.28s both;

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase, DEMO_MODE } from "../../lib/supabase";
+import { fmtDateOnly } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
 import type { Profile } from "../../lib/types";
 import { Modal } from "../../components/Modal";
 import { useDialog } from "../../components/DialogProvider";
@@ -69,7 +71,7 @@ export default function Registrations() {
       p_worker_id: p.id,
       p_reason: reason.trim() || null,
     });
-    if (error) return setMsg("خطأ: " + error.message);
+    if (error) return setMsg("خطأ: " + arabicError(error, "تعذر رفض الطلب."));
     setMsg("تم الرفض");
     await load();
   }
@@ -111,7 +113,7 @@ export default function Registrations() {
                   <td className="num" dir="ltr">
                     {p.username ?? "—"}
                   </td>
-                  <td className="num small">{p.created_at?.slice(0, 10)}</td>
+                  <td className="num small">{fmtDateOnly(p.created_at)}</td>
                   <td>
                     <button className="btn btn-sm" onClick={() => openCard(p)}>
                       <AppIcon name="idCard" size={16} />
@@ -233,7 +235,7 @@ function ApproveModal({
       p_daily_wage: Number(wage),
     });
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) return setErr(arabicError(error, "تعذر حفظ بيانات العامل."));
     onDone();
   }
 

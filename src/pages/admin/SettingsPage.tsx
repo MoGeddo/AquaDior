@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { arabicError } from "../../lib/errors";
 import { useAuth } from "../../store/auth";
 import ExternalPushSettings from "../../components/ExternalPushSettings";
 import AppIcon from "../../components/AppIcon";
@@ -18,7 +19,7 @@ export default function SettingsPage() {
       .eq("key", "telegram")
       .maybeSingle();
     if (error) {
-      setErr(`تعذر تحميل إعدادات تليجرام: ${error.message}`);
+      setErr(`تعذر تحميل إعدادات تليجرام: ${arabicError(error, "حاول مرة أخرى.")}`);
       return;
     }
     const telegramSettings = data?.value as Record<string, unknown> | null;
@@ -49,7 +50,7 @@ export default function SettingsPage() {
       if (error) throw error;
       setMsg("تم حفظ إعدادات تليجرام");
     } catch (error: any) {
-      setErr(error?.message ?? "تعذر حفظ إعدادات تليجرام");
+      setErr(arabicError(error, "تعذر حفظ إعدادات تليجرام."));
     } finally {
       setBusy(false);
     }
@@ -58,7 +59,7 @@ export default function SettingsPage() {
   async function testTg() {
     setErr("");
     setMsg("");
-    if (!tgChat.trim()) return setErr("اكتب الـ chat id واحفظه أولاً");
+    if (!tgChat.trim()) return setErr("اكتب معرّف المحادثة واحفظه أولًا.");
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke("notify-telegram", {
@@ -67,7 +68,7 @@ export default function SettingsPage() {
       if (error || !data?.ok) throw error ?? new Error("فشل إرسال الاختبار");
       setMsg("تم الإرسال — شوف تليجرام");
     } catch (error: any) {
-      setErr(error?.message ?? "فشل إرسال الاختبار؛ تحقق من نشر Edge Function وإعداد أسرارها");
+      setErr(arabicError(error, "فشل إرسال الرسالة التجريبية؛ تحقّق من إعداد خدمة الإرسال وأسرارها."));
     } finally {
       setBusy(false);
     }
@@ -84,11 +85,10 @@ export default function SettingsPage() {
           <span className="icon-label"><AppIcon name="bell" size={18} /><span>إشعارات تليجرام (مجانية)</span></span>
         </div>
         <p className="small muted mb">
-          احتفظ بتوكن البوت كسرّ في إعدادات Supabase Edge Functions فقط، ولا تضعه في التطبيق أو قاعدة البيانات.
-          حدّد <code>TELEGRAM_BOT_TOKEN</code> عبر Supabase CLI، ثم أدخل Chat ID هنا.
+          احتفظ برمز البوت في الإعدادات السرية للمشروع فقط، ولا تكتبه في التطبيق أو قاعدة البيانات. أدخل معرّف المحادثة أدناه.
         </p>
         <label className="field">
-          <span>Chat ID</span>
+          <span>معرّف المحادثة</span>
           <input
             className="input"
             dir="ltr"
@@ -112,28 +112,8 @@ export default function SettingsPage() {
           <span className="icon-label"><AppIcon name="calendarCheck" size={18} /><span>التقرير اليومي التلقائي</span></span>
         </div>
         <p className="small muted mb">
-          عشان التقرير يوصل كل يوم على تليجرام، نشر الـ Edge Function:
+          لإرسال التقرير يوميًا إلى تليجرام، يحتاج المطوّر إلى إعداد خدمة الإرسال ومهمة مجدولة في لوحة المشروع. تُحفظ مفاتيح الربط كأسرار، ولا تُكتب في التطبيق أو قاعدة البيانات.
         </p>
-        <pre
-          dir="ltr"
-          style={{
-            background: "#0f172a",
-            color: "#e2e8f0",
-            padding: 14,
-            borderRadius: 12,
-            fontSize: 13,
-            overflowX: "auto",
-          }}
-        >
-{`# خزّن الأسرار خارج التطبيق/قاعدة البيانات
-supabase secrets set TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN' TELEGRAM_CRON_SECRET='LONG_RANDOM_SECRET' APP_ORIGIN='https://your-app.example'
-supabase functions deploy notify-telegram
-
-# أعدّ مجدولاً يرسل POST إلى:
-# https://YOUR_PROJECT.supabase.co/functions/v1/notify-telegram?action=daily
-# مع الترويسة x-cron-secret: LONG_RANDOM_SECRET
-# لا تضع السر في مستودع Git أو في واجهة التطبيق.`}
-        </pre>
       </div>
     </>
   );

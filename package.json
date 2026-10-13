@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:smoke": "vite build --config vite.smoke.config.ts && node tests/smoke.mjs"
+    "test:localization": "node tests/localization.mjs",
+    "test:smoke": "vite build --config vite.smoke.config.ts && node tests/localization.mjs && node tests/smoke.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^7.6.9",

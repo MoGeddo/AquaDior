@@ -337,7 +337,7 @@ create table if not exists public.settings (
 );
 
 insert into public.settings (key, value) values
-  ('app', '{"auto_approve_limit":500,"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
+  ('app', '{"absence_deduction":50,"day_lock_time":"00:00","gps_enabled":false,"currency":"ج.م"}'::jsonb),
   ('telegram', '{"chat_id":""}'::jsonb)
 on conflict (key) do nothing;
 -- Telegram bot tokens must never be stored in the client-readable settings table.
@@ -1016,7 +1016,7 @@ drop trigger if exists trg_notif_attendance on public.attendance;
 create trigger trg_notif_attendance after insert or update on public.attendance
   for each row execute function public.notify_attendance();
 
--- ---------- Withdrawal auto-approval + notifications ----------
+-- ---------- Withdrawal requests always require owner approval ----------
 create or replace function public.notify_withdrawal()
 returns trigger
 language plpgsql
@@ -1025,31 +1025,34 @@ set search_path = public, auth, extensions
 as $$
 declare
   v_name text;
-  v_limit numeric := 0;
-  v_limit_text text;
   v_currency text;
+  v_worker_title text;
+  v_worker_body text;
 begin
   select full_name into v_name from public.profiles where id = new.worker_id;
-  select value->>'auto_approve_limit', value->>'currency'
-    into v_limit_text, v_currency
+  select value->>'currency' into v_currency
   from public.settings where key = 'app';
-  if coalesce(v_limit_text, '') ~ '^[0-9]{1,8}(\.[0-9]{1,2})?$' then
-    v_limit := v_limit_text::numeric;
-  end if;
-  if v_limit < 0 or v_limit >= 100000000 then v_limit := 0; end if;
   if v_currency is null or length(v_currency) > 20 then v_currency := 'ج.م'; end if;
 
   if tg_op = 'INSERT' then
-    if new.amount <= v_limit then
-      new.status := 'approved';
-      new.decided_at := now();
-      new.decided_by := null; -- اعتماد آلي من النظام
-    end if;
+    -- A new request is never approved by a trigger, regardless of amount or
+    -- any legacy auto_approve_limit value still present in settings.
+    new.status := 'pending';
+    new.decided_at := null;
+    new.decided_by := null;
+    new.decision_note := null;
     perform public.notify_admins(
-      case when new.status = 'approved' then 'withdrawal_auto' else 'withdrawal_pending' end,
-      case when new.status = 'approved' then 'صرف تلقائي' else 'مطلوب موافقة' end,
-      coalesce(v_name, 'عامل') || ' طلب ' || new.amount || ' ' || v_currency,
-      jsonb_build_object('worker_id', new.worker_id, 'amount', new.amount, 'id', new.id)
+      'withdrawal_pending', 'طلب سحب جديد',
+      coalesce(v_name, 'عامل') || ' طلب ' || new.amount || ' ' || v_currency || ' — بانتظار موافقة المالك',
+      jsonb_build_object('worker_id', new.worker_id, 'amount', new.amount, 'id', new.id, 'status', new.status)
+    );
+    insert into public.notifications (user_id, type, title, body, data)
+    values (
+      new.worker_id,
+      'withdrawal_new',
+      'طلب السحب بانتظار موافقة المالك',
+      'استلمنا طلبك بمبلغ ' || new.amount || ' ' || v_currency || '؛ لن يُخصم من رصيدك إلا بعد موافقة المالك',
+      jsonb_build_object('withdrawal_id', new.id, 'amount', new.amount, 'status', new.status)
     );
   elsif tg_op = 'UPDATE' and old.status is distinct from new.status then
     perform public.notify_admins(
@@ -1060,8 +1063,22 @@ begin
           when 'rejected' then 'مرفوضاً'
           else 'معلّقاً'
         end,
-      jsonb_build_object('worker_id', new.worker_id, 'amount', new.amount, 'status', new.status)
+      jsonb_build_object('worker_id', new.worker_id, 'amount', new.amount, 'status', new.status, 'id', new.id)
     );
+    v_worker_title := case new.status
+      when 'approved' then 'تمت الموافقة على طلب السحب'
+      when 'rejected' then 'تم رفض طلب السحب'
+      else 'تغيّرت حالة طلب السحب'
+    end;
+    v_worker_body := coalesce(nullif(trim(new.decision_note), ''),
+      case new.status
+        when 'approved' then 'وافق المالك على طلبك بمبلغ ' || new.amount || ' ' || v_currency
+        when 'rejected' then 'رفض المالك طلبك بمبلغ ' || new.amount || ' ' || v_currency
+        else 'تغيّرت حالة طلبك بمبلغ ' || new.amount || ' ' || v_currency
+      end);
+    insert into public.notifications (user_id, type, title, body, data)
+    values (new.worker_id, 'withdrawal_decision', v_worker_title, v_worker_body,
+      jsonb_build_object('withdrawal_id', new.id, 'amount', new.amount, 'status', new.status));
   end if;
   return new;
 end;
@@ -1696,7 +1713,6 @@ declare
   v_result public.withdrawals;
   v_amount numeric;
   v_available numeric;
-  v_auto_limit numeric := 500;
 begin
   if auth.uid() is null or auth.uid() <> p_worker_id then
     raise exception 'غير مسموح بطلب فلوس لحساب آخر';
@@ -1730,9 +1746,6 @@ begin
     return v_result;
   end if;
 
-  select coalesce(nullif(s.value->>'auto_approve_limit', '')::numeric, 500)
-  into v_auto_limit from public.settings s where s.key = 'app';
-  v_auto_limit := coalesce(v_auto_limit, 500);
   select coalesce(b.available, 0) into v_available
   from public.worker_balances b where b.worker_id = auth.uid();
   v_available := greatest(coalesce(v_available, 0), 0);
@@ -1744,9 +1757,7 @@ begin
     (worker_id, project_id, amount, note, created_by, client_request_id, status, decided_by, decided_at)
   values
     (auth.uid(), null, v_amount, p_note, auth.uid(), p_request_id,
-     case when v_amount <= v_auto_limit then 'approved' else 'pending' end,
-     case when v_amount <= v_auto_limit then auth.uid() else null end,
-     case when v_amount <= v_auto_limit then now() else null end)
+     'pending', null, null)
   returning * into v_result;
   return v_result;
 end;
@@ -2709,7 +2720,6 @@ declare
   v_result public.withdrawals;
   v_amount numeric;
   v_available numeric;
-  v_auto_limit numeric := 500;
 begin
   if auth.uid() is null or auth.uid() <> p_worker_id then
     raise exception 'غير مسموح بطلب فلوس لحساب آخر';
@@ -2743,9 +2753,6 @@ begin
     return v_result;
   end if;
 
-  select coalesce(nullif(s.value->>'auto_approve_limit', '')::numeric, 500)
-  into v_auto_limit from public.settings s where s.key = 'app';
-  v_auto_limit := coalesce(v_auto_limit, 500);
   select coalesce(b.available, 0) into v_available
   from public.worker_balances b where b.worker_id = auth.uid();
   v_available := greatest(coalesce(v_available, 0), 0);
@@ -2757,9 +2764,7 @@ begin
     (worker_id, project_id, amount, note, created_by, client_request_id, status, decided_by, decided_at)
   values
     (auth.uid(), null, v_amount, p_note, auth.uid(), p_request_id,
-     case when v_amount <= v_auto_limit then 'approved' else 'pending' end,
-     case when v_amount <= v_auto_limit then auth.uid() else null end,
-     case when v_amount <= v_auto_limit then now() else null end)
+     'pending', null, null)
   returning * into v_result;
   return v_result;
 end;
@@ -3457,7 +3462,7 @@ begin
 end;
 $$;
 
--- Keep automatic approval and admin alerts while notifying the worker both
+-- Keep owner approval mandatory while notifying the worker and admins both
 -- when a request is created and when its status is decided.
 create or replace function public.notify_withdrawal()
 returns trigger
@@ -3467,43 +3472,35 @@ set search_path = public, auth, extensions
 as $$
 declare
   v_name text;
-  v_limit numeric := 0;
-  v_limit_text text;
   v_currency text;
   v_worker_title text;
   v_worker_body text;
 begin
   select full_name into v_name from public.profiles where id = new.worker_id;
-  select value->>'auto_approve_limit', value->>'currency'
-    into v_limit_text, v_currency
+  select value->>'currency' into v_currency
   from public.settings where key = 'app';
-  if coalesce(v_limit_text, '') ~ '^[0-9]{1,8}(\.[0-9]{1,2})?$' then
-    v_limit := v_limit_text::numeric;
-  end if;
-  if v_limit < 0 or v_limit >= 100000000 then v_limit := 0; end if;
   if v_currency is null or length(v_currency) > 20 then v_currency := 'ج.م'; end if;
 
   if tg_op = 'INSERT' then
-    if new.amount <= v_limit then
-      new.status := 'approved';
-      new.decided_at := now();
-      new.decided_by := null;
-    end if;
+    -- A new request is never approved by a trigger, regardless of amount or
+    -- any legacy auto_approve_limit value still present in settings.
+    new.status := 'pending';
+    new.decided_at := null;
+    new.decided_by := null;
+    new.decision_note := null;
     perform public.notify_admins(
-      case when new.status = 'approved' then 'withdrawal_auto' else 'withdrawal_pending' end,
-      case when new.status = 'approved' then 'صرف تلقائي' else 'مطلوب موافقة' end,
-      coalesce(v_name, 'عامل') || ' طلب ' || new.amount || ' ' || v_currency,
+      'withdrawal_pending', 'طلب سحب جديد',
+      coalesce(v_name, 'عامل') || ' طلب ' || new.amount || ' ' || v_currency || ' — بانتظار موافقة المالك',
       jsonb_build_object('worker_id', new.worker_id, 'amount', new.amount, 'id', new.id, 'status', new.status)
     );
-    v_worker_title := case when new.status = 'approved' then 'تمت الموافقة على طلب السحب' else 'طلب السحب قيد المراجعة' end;
-    v_worker_body := case when new.status = 'approved'
-      then 'تمت الموافقة تلقائيًا على طلبك بمبلغ ' || new.amount || ' ' || v_currency
-      else 'استلمنا طلبك بمبلغ ' || new.amount || ' ' || v_currency || '، وهو بانتظار قرار المالك' end;
     insert into public.notifications (user_id, type, title, body, data)
-    values (new.worker_id,
-      case when new.status = 'approved' then 'withdrawal_auto' else 'withdrawal_new' end,
-      v_worker_title, v_worker_body,
-      jsonb_build_object('withdrawal_id', new.id, 'amount', new.amount, 'status', new.status));
+    values (
+      new.worker_id,
+      'withdrawal_new',
+      'طلب السحب بانتظار موافقة المالك',
+      'استلمنا طلبك بمبلغ ' || new.amount || ' ' || v_currency || '؛ لن يُخصم من رصيدك إلا بعد موافقة المالك',
+      jsonb_build_object('withdrawal_id', new.id, 'amount', new.amount, 'status', new.status)
+    );
   elsif tg_op = 'UPDATE' and old.status is distinct from new.status then
     perform public.notify_admins(
       'withdrawal_decided', 'قرار على طلب صرف',

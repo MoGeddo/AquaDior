@@ -30,14 +30,19 @@ export default function AdminLayout() {
   const { profile, signOut } = useAuth();
   const nav = useNavigate();
   const [pending, setPending] = useState(0);
+  const [pendingWithdrawals, setPendingWithdrawals] = useState(0);
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     if (!profile) return;
     const load = async () => {
-      const [{ count: p }, { count: n }] = await Promise.all([
+      const [{ count: p }, { count: w }, { count: n }] = await Promise.all([
         supabase
           .from("profiles")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
+        supabase
+          .from("withdrawals")
           .select("*", { count: "exact", head: true })
           .eq("status", "pending"),
         supabase
@@ -47,6 +52,7 @@ export default function AdminLayout() {
           .eq("is_read", false),
       ]);
       setPending(p ?? 0);
+      setPendingWithdrawals(w ?? 0);
       setUnread(n ?? 0);
     };
     load();
@@ -101,8 +107,13 @@ export default function AdminLayout() {
             <AppIcon name={l.icon} className="admin-nav-icon" size={18} />
             <span>{l.label}</span>
             {l.to === "/admin/registrations" && pending > 0 && (
-              <span className="badge red" style={{ marginInlineStart: 2 }}>
+              <span className="badge red" style={{ marginInlineStart: 2 }} aria-label={`${pending} طلب تسجيل معلّق`}>
                 {pending}
+              </span>
+            )}
+            {l.to === "/admin/withdrawals" && pendingWithdrawals > 0 && (
+              <span className="badge red" style={{ marginInlineStart: 2 }} aria-label={`${pendingWithdrawals} طلب سحب معلّق`}>
+                {pendingWithdrawals}
               </span>
             )}
           </NavLink>

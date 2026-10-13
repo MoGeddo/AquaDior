@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { fmtDateOnly, fmtDateTime } from "../../lib/calc";
+import { arabicError } from "../../lib/errors";
+import { arabicTableLabel, localizeDateText } from "../../lib/presentation";
 import type { Notification } from "../../lib/types";
 import { useAuth } from "../../store/auth";
 import AppIcon from "../../components/AppIcon";
@@ -40,7 +43,7 @@ export default function AuditLog() {
           .limit(100),
       ]);
       if (logError || notificationError) {
-        throw new Error(logError?.message ?? notificationError?.message ?? "تعذر تحميل سجل الإدارة");
+        throw logError ?? notificationError;
       }
       setLogs(l ?? []);
       setNotifs((n ?? []) as Notification[]);
@@ -60,7 +63,7 @@ export default function AuditLog() {
         setNames({});
       }
     } catch (caught: any) {
-      setError(caught?.message ?? "تعذر تحميل سجل الإدارة");
+      setError(arabicError(caught, "تعذر تحميل سجل الإدارة."));
     } finally {
       setLoading(false);
     }
@@ -82,7 +85,7 @@ export default function AuditLog() {
       .eq("id", id)
       .eq("user_id", profile.id)
       .eq("is_read", false);
-    if (updateError) setError(updateError.message ?? "تعذر تحديث الإشعار");
+    if (updateError) setError(arabicError(updateError, "تعذر تحديث الإشعار."));
     else setNotifs((current) => current.map((item) => item.id === id ? { ...item, is_read: true } : item));
     setBusyId(null);
   }
@@ -96,7 +99,7 @@ export default function AuditLog() {
       .update({ is_read: true })
       .eq("user_id", profile.id)
       .eq("is_read", false);
-    if (updateError) setError(updateError.message ?? "تعذر تحديث الإشعارات");
+    if (updateError) setError(arabicError(updateError, "تعذر تحديث الإشعارات."));
     else setNotifs((current) => current.map((item) => ({ ...item, is_read: true })));
     setMarkingAll(false);
   }
@@ -106,7 +109,7 @@ export default function AuditLog() {
     const nm = names[log.changed_by] ?? "النظام";
     if (t === "attendance") {
       const d = (log.new_data ?? log.old_data)?.work_date ?? "";
-      return `${nm} — ${LABELS[log.action]} حضور بتاريخ ${d}`;
+      return `${nm} — ${LABELS[log.action]} حضور بتاريخ ${fmtDateOnly(d)}`;
     }
     if (t === "withdrawals") {
       const v = log.new_data ?? log.old_data;
@@ -130,7 +133,7 @@ export default function AuditLog() {
       const v = log.new_data ?? log.old_data;
       return `${nm} — ${LABELS[log.action]} مشروع ${v?.name}`;
     }
-    return `${nm} — ${LABELS[log.action]} في ${t}`;
+    return `${nm} — ${LABELS[log.action]} في ${arabicTableLabel(t)}`;
   }
 
   return (
@@ -177,11 +180,11 @@ export default function AuditLog() {
                     <AppIcon name="bell" size={19} />
                   </div>
                   <div className="notification-content">
-                    <div className="notification-title">{n.title}</div>
-                    {n.body && <div className="notification-body">{n.body}</div>}
-                    <time className="small muted" dateTime={n.created_at}>{n.created_at?.slice(0, 10)} {n.created_at?.slice(11, 16)}</time>
+                    <div className="notification-title">{localizeDateText(n.title)}</div>
+                    {n.body && <div className="notification-body">{localizeDateText(n.body)}</div>}
+                    <time className="small muted" dateTime={n.created_at}>{fmtDateTime(n.created_at)}</time>
                   </div>
-                  {!n.is_read && <button className="btn btn-sm btn-ghost notification-read" aria-label={`تعليم «${n.title}» كمقروء`} onClick={() => void markRead(n.id)} disabled={busyId === n.id}>{busyId === n.id ? "…" : <AppIcon name="circleCheck" size={18} />}</button>}
+                  {!n.is_read && <button className="btn btn-sm btn-ghost notification-read" aria-label={`تعليم «${localizeDateText(n.title)}» كمقروء`} onClick={() => void markRead(n.id)} disabled={busyId === n.id}>{busyId === n.id ? "…" : <AppIcon name="circleCheck" size={18} />}</button>}
                 </article>
               ))}
             </div>
@@ -208,7 +211,7 @@ export default function AuditLog() {
                 {logs.map((l) => (
                   <tr key={l.id}>
                     <td className="num small">
-                      {l.changed_at?.slice(0, 10)} {l.changed_at?.slice(11, 16)}
+                      {fmtDateTime(l.changed_at)}
                     </td>
                     <td>
                       <span

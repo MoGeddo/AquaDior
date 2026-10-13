@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { db } from "./db";
+import { arabicError } from "./errors";
 
 const ALLOWED_QUEUE_RPCS = new Set([
   "register_attendance_multi",
@@ -114,9 +115,10 @@ export async function flushQueue(): Promise<number> {
         done++;
       } catch (error: any) {
         const status = Number(error?.status ?? 0);
-        const message = String(error?.message ?? error ?? "Sync failed").slice(0, 500);
+        const rawMessage = String(error?.message ?? error ?? "").slice(0, 500);
+        const message = arabicError(error, "تعذر مزامنة العملية.");
         const retryable = !navigator.onLine || status === 429 || status >= 500 ||
-          /network|fetch|timeout|offline|temporar|service unavailable/i.test(message);
+          /network|fetch|timeout|offline|temporar|service unavailable/i.test(rawMessage);
         if (op.id) {
           await db.queue.update(op.id, {
             tries: (op.tries ?? 0) + 1,
